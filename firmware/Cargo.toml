@@ -1,0 +1,8 @@
+[package]
+name = "orin-nano-controller"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+embassy-stm32 = { version = "0.4.0", features = ["memory-x", "stm32g0b1ke", "time-driver-tim1"] }
+embassy-time = "0.5.0"
