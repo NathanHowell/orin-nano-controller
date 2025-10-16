@@ -1,0 +1,13 @@
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+# replace stm32u083rctx with your chip as listed in `probe-rs chip list`
+runner = "probe-rs run --chip stm32u083rctx"
+
+[build]
+target = "thumbv6m-none-eabi"
+
+[unstable]
+build-std = ["core"]
+build-std-features = ["panic_immediate_abort"]
+
+[env]
+DEFMT_LOG = "trace"
