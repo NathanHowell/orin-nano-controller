@@ -2692,6 +2692,12 @@
 		)
 	)
 	(junction
+		(at 242.57 74.93)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "0e0389b4-e8be-4d31-878c-33d4c8e4d243")
+	)
+	(junction
 		(at 90.17 39.37)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -3065,6 +3071,16 @@
 	)
 	(wire
 		(pts
+			(xy 242.57 77.47) (xy 242.57 74.93)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "453ea771-c6a5-46f2-99fe-a170fc3706e7")
+	)
+	(wire
+		(pts
 			(xy 115.57 62.23) (xy 133.35 62.23)
 		)
 		(stroke
@@ -3135,6 +3151,16 @@
 	)
 	(wire
 		(pts
+			(xy 243.84 77.47) (xy 242.57 77.47)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "554c09f3-e19a-4fda-b9b2-940f50c52b92")
+	)
+	(wire
+		(pts
 			(xy 143.51 -48.26) (xy 143.51 -39.37)
 		)
 		(stroke
@@ -3192,6 +3218,16 @@
 			(type default)
 		)
 		(uuid "5e9161d7-1af2-47ca-a505-6af4540bd92e")
+	)
+	(wire
+		(pts
+			(xy 242.57 74.93) (xy 265.43 74.93)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "5f922230-f0b6-434d-80bb-1c496203f271")
 	)
 	(wire
 		(pts
@@ -3475,6 +3511,16 @@
 	)
 	(wire
 		(pts
+			(xy 255.27 72.39) (xy 265.43 72.39)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "bf9d634f-737a-4146-a2ce-1feb4bf28866")
+	)
+	(wire
+		(pts
 			(xy 149.86 52.07) (xy 160.02 52.07)
 		)
 		(stroke
@@ -3635,6 +3681,16 @@
 	)
 	(wire
 		(pts
+			(xy 255.27 69.85) (xy 265.43 69.85)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "db6b1856-145b-4f45-82ff-c6009d4c9f69")
+	)
+	(wire
+		(pts
 			(xy 213.36 135.89) (xy 256.54 135.89)
 		)
 		(stroke
@@ -3665,7 +3721,7 @@
 	)
 	(wire
 		(pts
-			(xy 240.03 74.93) (xy 265.43 74.93)
+			(xy 240.03 74.93) (xy 242.57 74.93)
 		)
 		(stroke
 			(width 0)
@@ -3754,12 +3810,12 @@
 		(uuid "1aa9429d-8cd6-46fc-a1a0-fb435a7d00ea")
 	)
 	(label "APO_STRAP"
-		(at 242.57 74.93 0)
+		(at 243.84 77.47 0)
 		(effects
 			(font
 				(size 1.27 1.27)
 			)
-			(justify left bottom)
+			(justify left top)
 		)
 		(uuid "9ee8bc65-6f15-4488-a1b0-006e676304c3")
 	)
@@ -4157,6 +4213,28 @@
 			)
 		)
 	)
+	(global_label "UART2_TXD"
+		(shape output)
+		(at 242.57 72.39 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "cdb5e53a-e55a-46d7-a410-812a5ef34dcf")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 255.8361 72.39 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
 	(global_label "OREC"
 		(shape input)
 		(at 187.96 135.89 180)
@@ -4197,6 +4275,28 @@
 					(size 1.27 1.27)
 				)
 				(justify left)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "UART2_RXD"
+		(shape input)
+		(at 255.27 69.85 180)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "f34c57ca-e9b9-4241-9041-3132e29320a9")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 241.7015 69.85 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
 				(hide yes)
 			)
 		)
