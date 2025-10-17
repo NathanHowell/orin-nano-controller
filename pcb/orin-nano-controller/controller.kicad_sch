@@ -4467,7 +4467,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0508_1220Metric_Pad1.12x2.15mm_HandSolder"
+		(property "Footprint" "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
 			(at 106.68 -55.88 0)
 			(effects
 				(font
@@ -4476,7 +4476,7 @@
 				(hide yes)
 			)
 		)
-		(property "Datasheet" "~"
+		(property "Datasheet" ""
 			(at 106.68 -55.88 0)
 			(effects
 				(font
@@ -4485,7 +4485,7 @@
 				(hide yes)
 			)
 		)
-		(property "Description" "Resistor, small US symbol"
+		(property "Description" ""
 			(at 106.68 -55.88 0)
 			(effects
 				(font
@@ -4740,7 +4740,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Resistor_SMD:R_0508_1220Metric_Pad1.12x2.15mm_HandSolder"
+		(property "Footprint" "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
 			(at 125.73 -48.26 0)
 			(effects
 				(font
@@ -4749,7 +4749,7 @@
 				(hide yes)
 			)
 		)
-		(property "Datasheet" "~"
+		(property "Datasheet" ""
 			(at 125.73 -48.26 0)
 			(effects
 				(font
@@ -4758,7 +4758,7 @@
 				(hide yes)
 			)
 		)
-		(property "Description" "Resistor, small US symbol"
+		(property "Description" ""
 			(at 125.73 -48.26 0)
 			(effects
 				(font
@@ -5084,7 +5084,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "329a0d8f-011f-40a6-8703-a61117ae5f31")
-		(property "Reference" "C9"
+		(property "Reference" "C8"
 			(at 41.91 56.0069 0)
 			(effects
 				(font
@@ -5138,7 +5138,7 @@
 		(instances
 			(project ""
 				(path "/75c44e6f-0ea5-4980-b537-2044bb5bee98/51635310-cf84-4ff9-9fa7-4b65dd3bd30e"
-					(reference "C9")
+					(reference "C8")
 					(unit 1)
 				)
 			)
@@ -6064,7 +6064,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "915acb96-83cd-4a90-a536-a531c5f612a1")
-		(property "Reference" "C8"
+		(property "Reference" "C9"
 			(at 192.913 113.03 90)
 			(effects
 				(font
@@ -6116,7 +6116,7 @@
 		(instances
 			(project "orin-nano-controller"
 				(path "/75c44e6f-0ea5-4980-b537-2044bb5bee98/51635310-cf84-4ff9-9fa7-4b65dd3bd30e"
-					(reference "C8")
+					(reference "C9")
 					(unit 1)
 				)
 			)
@@ -6530,7 +6530,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "b6629632-82bf-4335-94e8-b58ad195c31e")
-		(property "Reference" "C6"
+		(property "Reference" "C7"
 			(at 208.153 44.45 90)
 			(effects
 				(font
@@ -6582,7 +6582,7 @@
 		(instances
 			(project ""
 				(path "/75c44e6f-0ea5-4980-b537-2044bb5bee98/51635310-cf84-4ff9-9fa7-4b65dd3bd30e"
-					(reference "C6")
+					(reference "C7")
 					(unit 1)
 				)
 			)
@@ -6800,7 +6800,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "c7ca3768-07c8-4922-8e97-3bfe8eef9d04")
-		(property "Reference" "C7"
+		(property "Reference" "C6"
 			(at 77.343 33.02 90)
 			(effects
 				(font
@@ -6852,7 +6852,7 @@
 		(instances
 			(project ""
 				(path "/75c44e6f-0ea5-4980-b537-2044bb5bee98/51635310-cf84-4ff9-9fa7-4b65dd3bd30e"
-					(reference "C7")
+					(reference "C6")
 					(unit 1)
 				)
 			)
@@ -6868,7 +6868,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "d643550a-a661-451e-8791-6c8b5f4c7a5b")
-		(property "Reference" "C4"
+		(property "Reference" "C5"
 			(at 208.153 60.96 90)
 			(effects
 				(font
@@ -6920,7 +6920,7 @@
 		(instances
 			(project ""
 				(path "/75c44e6f-0ea5-4980-b537-2044bb5bee98/51635310-cf84-4ff9-9fa7-4b65dd3bd30e"
-					(reference "C4")
+					(reference "C5")
 					(unit 1)
 				)
 			)

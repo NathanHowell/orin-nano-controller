@@ -1123,7 +1123,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "2bffc198-b296-4ce6-920e-d05932018586")
-		(property "Reference" "C5"
+		(property "Reference" "C4"
 			(at 106.68 78.8669 0)
 			(effects
 				(font
@@ -1141,7 +1141,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric_Pad1.08x0.95mm_HandSolder"
+		(property "Footprint" "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
 			(at 104.14 80.01 0)
 			(effects
 				(font
@@ -1159,7 +1159,7 @@
 				(hide yes)
 			)
 		)
-		(property "Description" "capacitor, small US symbol"
+		(property "Description" ""
 			(at 104.14 80.01 0)
 			(effects
 				(font
@@ -1177,7 +1177,7 @@
 		(instances
 			(project ""
 				(path "/75c44e6f-0ea5-4980-b537-2044bb5bee98/bfc8d61b-7653-4507-8257-04fbe0c5bd18"
-					(reference "C5")
+					(reference "C4")
 					(unit 1)
 				)
 			)
@@ -1669,7 +1669,7 @@
 				)
 			)
 		)
-		(property "Value" "a"
+		(property "Value" "ADP1715ARMZ-3.3-R7"
 			(at 119.38 62.23 0)
 			(effects
 				(font
