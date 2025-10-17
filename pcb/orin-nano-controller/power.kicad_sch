@@ -1053,7 +1053,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "1d52af61-39f0-4a7f-998b-ab7a1bf8dd8e")
-		(property "Reference" "C9"
+		(property "Reference" "C2"
 			(at 78.74 71.2469 0)
 			(effects
 				(font
@@ -1107,7 +1107,7 @@
 		(instances
 			(project "orin-nano-controller"
 				(path "/75c44e6f-0ea5-4980-b537-2044bb5bee98/bfc8d61b-7653-4507-8257-04fbe0c5bd18"
-					(reference "C9")
+					(reference "C2")
 					(unit 1)
 				)
 			)
@@ -1123,7 +1123,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "2bffc198-b296-4ce6-920e-d05932018586")
-		(property "Reference" "C7"
+		(property "Reference" "C5"
 			(at 106.68 78.8669 0)
 			(effects
 				(font
@@ -1177,7 +1177,7 @@
 		(instances
 			(project ""
 				(path "/75c44e6f-0ea5-4980-b537-2044bb5bee98/bfc8d61b-7653-4507-8257-04fbe0c5bd18"
-					(reference "C7")
+					(reference "C5")
 					(unit 1)
 				)
 			)
@@ -1259,7 +1259,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "6782c31f-8775-434b-8eb8-bca4011dcdae")
-		(property "Reference" "C8"
+		(property "Reference" "C3"
 			(at 96.52 83.9469 0)
 			(effects
 				(font
@@ -1313,7 +1313,7 @@
 		(instances
 			(project "orin-nano-controller"
 				(path "/75c44e6f-0ea5-4980-b537-2044bb5bee98/bfc8d61b-7653-4507-8257-04fbe0c5bd18"
-					(reference "C8")
+					(reference "C3")
 					(unit 1)
 				)
 			)

@@ -644,146 +644,6 @@
 			)
 			(embedded_fonts no)
 		)
-		(symbol "Device:C_Small_US"
-			(pin_numbers
-				(hide yes)
-			)
-			(pin_names
-				(offset 0.254)
-				(hide yes)
-			)
-			(exclude_from_sim no)
-			(in_bom yes)
-			(on_board yes)
-			(property "Reference" "C"
-				(at 0.254 1.778 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(justify left)
-				)
-			)
-			(property "Value" "C_Small_US"
-				(at 0.254 -2.032 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(justify left)
-				)
-			)
-			(property "Footprint" ""
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "Datasheet" ""
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "Description" "capacitor, small US symbol"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "ki_keywords" "cap capacitor"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(property "ki_fp_filters" "C_*"
-				(at 0 0 0)
-				(effects
-					(font
-						(size 1.27 1.27)
-					)
-					(hide yes)
-				)
-			)
-			(symbol "C_Small_US_0_1"
-				(polyline
-					(pts
-						(xy -1.524 0.508) (xy 1.524 0.508)
-					)
-					(stroke
-						(width 0.3048)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-				(arc
-					(start -1.524 -0.762)
-					(mid 0 -0.3734)
-					(end 1.524 -0.762)
-					(stroke
-						(width 0.3048)
-						(type default)
-					)
-					(fill
-						(type none)
-					)
-				)
-			)
-			(symbol "C_Small_US_1_1"
-				(pin passive line
-					(at 0 2.54 270)
-					(length 2.032)
-					(name "~"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "1"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-				(pin passive line
-					(at 0 -2.54 90)
-					(length 2.032)
-					(name "~"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "2"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-			)
-			(embedded_fonts no)
-		)
 		(symbol "Device:R_Small_US"
 			(pin_numbers
 				(hide yes)
@@ -1410,22 +1270,10 @@
 		(uuid "4f0a9ac5-3864-4a9c-a0b4-8a70912a9e3f")
 	)
 	(junction
-		(at 124.46 69.85)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "7c4ac387-7034-49fc-ab42-650ddfb6b9f1")
-	)
-	(junction
 		(at 134.62 105.41)
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "978435ba-d7c9-4c5e-9202-c5b2803609fc")
-	)
-	(junction
-		(at 142.24 88.9)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "c27cd2aa-b664-49c2-a8ea-b1d727235e0b")
 	)
 	(junction
 		(at 106.68 135.89)
@@ -1595,26 +1443,6 @@
 	)
 	(wire
 		(pts
-			(xy 138.43 69.85) (xy 142.24 69.85)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "6f4cfcfc-6a93-4019-8bc8-fb1bd8890f57")
-	)
-	(wire
-		(pts
-			(xy 124.46 69.85) (xy 133.35 69.85)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "7d61c651-7751-4b15-8d67-0c4364c7ef7b")
-	)
-	(wire
-		(pts
 			(xy 121.92 99.06) (xy 133.35 99.06)
 		)
 		(stroke
@@ -1675,7 +1503,7 @@
 	)
 	(wire
 		(pts
-			(xy 124.46 69.85) (xy 124.46 91.44)
+			(xy 124.46 63.5) (xy 124.46 91.44)
 		)
 		(stroke
 			(width 0)
@@ -1692,16 +1520,6 @@
 			(type default)
 		)
 		(uuid "c62a15e4-1e6e-46ef-adc0-f5f042eac782")
-	)
-	(wire
-		(pts
-			(xy 142.24 69.85) (xy 142.24 88.9)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "cdbda2b7-4485-44df-a987-e831c1b2a717")
 	)
 	(wire
 		(pts
@@ -1732,16 +1550,6 @@
 			(type default)
 		)
 		(uuid "db814ae2-7d1a-473b-99db-70cc1c94b36c")
-	)
-	(wire
-		(pts
-			(xy 124.46 63.5) (xy 124.46 69.85)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "dec66d98-47f6-4067-aeb7-057503d23468")
 	)
 	(wire
 		(pts
@@ -2033,7 +1841,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "25471d6c-8fb9-4871-a001-7d7489d66377")
-		(property "Reference" "RCC2"
+		(property "Reference" "RCC1"
 			(at 135.89 92.71 90)
 			(effects
 				(font
@@ -2085,7 +1893,7 @@
 		(instances
 			(project "orin-nano-controller"
 				(path "/75c44e6f-0ea5-4980-b537-2044bb5bee98/198e42d4-2f3d-48b3-a242-d90132e348d6"
-					(reference "RCC2")
+					(reference "RCC1")
 					(unit 1)
 				)
 			)
@@ -2101,7 +1909,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "3dfe2a22-bc31-4577-8634-b35f88d28ffd")
-		(property "Reference" "RCC1"
+		(property "Reference" "RCC2"
 			(at 135.89 82.55 90)
 			(effects
 				(font
@@ -2153,7 +1961,7 @@
 		(instances
 			(project "orin-nano-controller"
 				(path "/75c44e6f-0ea5-4980-b537-2044bb5bee98/198e42d4-2f3d-48b3-a242-d90132e348d6"
-					(reference "RCC1")
+					(reference "RCC2")
 					(unit 1)
 				)
 			)
@@ -2220,74 +2028,6 @@
 			(project ""
 				(path "/75c44e6f-0ea5-4980-b537-2044bb5bee98/198e42d4-2f3d-48b3-a242-d90132e348d6"
 					(reference "#PWR03")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:C_Small_US")
-		(at 135.89 69.85 270)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "7cd8c306-b0d5-403b-831e-32c328cfc1ec")
-		(property "Reference" "C_VBUS1"
-			(at 135.763 63.5 90)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "1 µF"
-			(at 135.763 66.04 90)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
-			(at 135.89 69.85 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" ""
-			(at 135.89 69.85 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "capacitor, small US symbol"
-			(at 135.89 69.85 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "7dad412b-b793-4023-99b6-cabf48ce5d01")
-		)
-		(pin "2"
-			(uuid "a6617681-a05d-4bd3-8110-efdd516d732e")
-		)
-		(instances
-			(project "orin-nano-controller"
-				(path "/75c44e6f-0ea5-4980-b537-2044bb5bee98/198e42d4-2f3d-48b3-a242-d90132e348d6"
-					(reference "C_VBUS1")
 					(unit 1)
 				)
 			)
@@ -2369,7 +2109,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "e0c11f5a-981d-42c9-9330-5f0a5061bedf")
-		(property "Reference" "J1"
+		(property "Reference" "J3"
 			(at 106.68 83.82 0)
 			(effects
 				(font
@@ -2460,7 +2200,7 @@
 		(instances
 			(project "orin-nano-controller"
 				(path "/75c44e6f-0ea5-4980-b537-2044bb5bee98/198e42d4-2f3d-48b3-a242-d90132e348d6"
-					(reference "J1")
+					(reference "J3")
 					(unit 1)
 				)
 			)
