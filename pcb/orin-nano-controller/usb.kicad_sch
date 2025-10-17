@@ -926,22 +926,20 @@
 			(exclude_from_sim no)
 			(in_bom yes)
 			(on_board yes)
-			(property "Reference" "IC"
-				(at 26.67 7.62 0)
+			(property "Reference" "D1"
+				(at 15.24 7.62 0)
 				(effects
 					(font
 						(size 1.27 1.27)
 					)
-					(justify left top)
 				)
 			)
 			(property "Value" "IP4220CZ6"
-				(at 26.67 5.08 0)
+				(at 15.24 5.08 0)
 				(effects
 					(font
 						(size 1.27 1.27)
 					)
-					(justify left top)
 				)
 			)
 			(property "Footprint" "SamacSys:IP4220CZ6"
@@ -2237,7 +2235,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "7cd8c306-b0d5-403b-831e-32c328cfc1ec")
-		(property "Reference" "C_VBUS"
+		(property "Reference" "C_VBUS1"
 			(at 135.763 63.5 90)
 			(effects
 				(font
@@ -2245,7 +2243,7 @@
 				)
 			)
 		)
-		(property "Value" "1 µF, 10 V, X5R"
+		(property "Value" "1 µF"
 			(at 135.763 66.04 90)
 			(effects
 				(font
@@ -2289,7 +2287,7 @@
 		(instances
 			(project "orin-nano-controller"
 				(path "/75c44e6f-0ea5-4980-b537-2044bb5bee98/198e42d4-2f3d-48b3-a242-d90132e348d6"
-					(reference "C_VBUS")
+					(reference "C_VBUS1")
 					(unit 1)
 				)
 			)
@@ -2387,7 +2385,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Connector_USB:USB_C_Receptacle_GCT_USB4085"
 			(at 110.49 106.68 0)
 			(effects
 				(font
