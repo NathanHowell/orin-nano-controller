@@ -1547,12 +1547,6 @@
 		(uuid "4f0a9ac5-3864-4a9c-a0b4-8a70912a9e3f")
 	)
 	(junction
-		(at 106.68 135.89)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "6fdfe62c-9913-483c-bcb1-149aa231c9e2")
-	)
-	(junction
 		(at 134.62 105.41)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -1782,16 +1776,6 @@
 	)
 	(wire
 		(pts
-			(xy 99.06 135.89) (xy 106.68 135.89)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "8aaa0900-a2e6-4dc9-8fc9-a3275759d5a8")
-	)
-	(wire
-		(pts
 			(xy 106.68 166.37) (xy 106.68 168.91)
 		)
 		(stroke
@@ -1802,7 +1786,7 @@
 	)
 	(wire
 		(pts
-			(xy 99.06 129.54) (xy 99.06 135.89)
+			(xy 99.06 129.54) (xy 99.06 139.7)
 		)
 		(stroke
 			(width 0)
@@ -1829,16 +1813,6 @@
 			(type default)
 		)
 		(uuid "b8d92c06-f03f-4408-8d7f-9e0be6f86fc7")
-	)
-	(wire
-		(pts
-			(xy 106.68 138.43) (xy 106.68 135.89)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "b97f8ed3-451f-40c6-8a5c-4f4a2eca68d5")
 	)
 	(wire
 		(pts
@@ -1994,7 +1968,7 @@
 	)
 	(symbol
 		(lib_id "power:GNDREF")
-		(at 106.68 138.43 0)
+		(at 99.06 139.7 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -2003,7 +1977,7 @@
 		(fields_autoplaced yes)
 		(uuid "09a611f2-38f0-42d1-adb4-ca897a764fca")
 		(property "Reference" "#PWR029"
-			(at 106.68 144.78 0)
+			(at 99.06 146.05 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2012,7 +1986,7 @@
 			)
 		)
 		(property "Value" "GNDREF"
-			(at 106.68 143.51 0)
+			(at 99.06 144.78 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2020,7 +1994,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 106.68 138.43 0)
+			(at 99.06 139.7 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2029,7 +2003,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 106.68 138.43 0)
+			(at 99.06 139.7 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2038,7 +2012,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"GNDREF\" , reference supply ground"
-			(at 106.68 138.43 0)
+			(at 99.06 139.7 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2205,6 +2179,72 @@
 			(project "orin-nano-controller"
 				(path "/75c44e6f-0ea5-4980-b537-2044bb5bee98/198e42d4-2f3d-48b3-a242-d90132e348d6"
 					(reference "D1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 106.68 135.89 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "1677fbe0-bfec-4acf-b001-d2c0833f2ab6")
+		(property "Reference" "#PWR034"
+			(at 106.68 142.24 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 106.68 140.97 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 106.68 135.89 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 106.68 135.89 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 106.68 135.89 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "8cb0a106-f650-41db-842b-cb3a4f1598b3")
+		)
+		(instances
+			(project ""
+				(path "/75c44e6f-0ea5-4980-b537-2044bb5bee98/198e42d4-2f3d-48b3-a242-d90132e348d6"
+					(reference "#PWR034")
 					(unit 1)
 				)
 			)
