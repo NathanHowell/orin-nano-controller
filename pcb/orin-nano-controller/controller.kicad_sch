@@ -4,6 +4,11 @@
 	(generator_version "9.0")
 	(uuid "39cd3df2-47fd-41be-8957-50954e032899")
 	(paper "A4")
+	(title_block
+		(title "Controller")
+		(date "2025-10-22")
+		(rev "1")
+	)
 	(lib_symbols
 		(symbol "Connector:Conn_01x12_Socket"
 			(pin_names
@@ -3052,6 +3057,10 @@
 		(uuid "04e7b057-7c14-48ad-8578-c15110611fab")
 	)
 	(no_connect
+		(at 115.57 54.61)
+		(uuid "08bebac5-e591-436f-be35-6e590f01d31e")
+	)
+	(no_connect
 		(at 64.77 80.01)
 		(uuid "1dfe7fb0-c57d-4a3b-8aff-39b33e945736")
 	)
@@ -3090,6 +3099,10 @@
 	(no_connect
 		(at 68.58 165.1)
 		(uuid "8e532339-06eb-4501-8245-cccf5939a9de")
+	)
+	(no_connect
+		(at 265.43 77.47)
+		(uuid "9f5c80f4-94dd-4422-872d-3ccaf1bd1ad7")
 	)
 	(no_connect
 		(at 64.77 64.77)

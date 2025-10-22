@@ -4,6 +4,11 @@
 	(generator_version "9.0")
 	(uuid "9e28c324-abcd-479a-b937-2b55be90ee81")
 	(paper "A4")
+	(title_block
+		(title "Frontend")
+		(date "2025-10-22")
+		(rev "1")
+	)
 	(lib_symbols
 		(symbol "Connector:USB_C_Receptacle_USB2.0_14P"
 			(pin_names
@@ -767,6 +772,132 @@
 					(at 0 -2.54 90)
 					(length 2.032)
 					(name "~"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "2"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+			)
+			(embedded_fonts no)
+		)
+		(symbol "Device:NetTie_2"
+			(pin_numbers
+				(hide yes)
+			)
+			(pin_names
+				(offset 0)
+				(hide yes)
+			)
+			(exclude_from_sim no)
+			(in_bom no)
+			(on_board yes)
+			(property "Reference" "NT"
+				(at 0 1.27 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Value" "NetTie_2"
+				(at 0 -1.27 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Footprint" ""
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Datasheet" "~"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Description" "Net tie, 2 pins"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_keywords" "net tie short"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_fp_filters" "Net*Tie*"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(symbol "NetTie_2_0_1"
+				(polyline
+					(pts
+						(xy -1.27 0) (xy 1.27 0)
+					)
+					(stroke
+						(width 0.254)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+			)
+			(symbol "NetTie_2_1_1"
+				(pin passive line
+					(at -2.54 0 0)
+					(length 2.54)
+					(name "1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at 2.54 0 180)
+					(length 2.54)
+					(name "2"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -1606,6 +1737,16 @@
 	)
 	(wire
 		(pts
+			(xy 179.07 57.15) (xy 171.45 57.15)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "1dc765ec-353f-4c5d-b44e-4ac20badbbc2")
+	)
+	(wire
+		(pts
 			(xy 138.43 88.9) (xy 142.24 88.9)
 		)
 		(stroke
@@ -1726,6 +1867,16 @@
 	)
 	(wire
 		(pts
+			(xy 171.45 57.15) (xy 171.45 54.61)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "67468740-c204-44fe-9e0f-2a90c1e87e1d")
+	)
+	(wire
+		(pts
 			(xy 138.43 99.06) (xy 142.24 99.06)
 		)
 		(stroke
@@ -1796,6 +1947,16 @@
 	)
 	(wire
 		(pts
+			(xy 124.46 63.5) (xy 124.46 91.44)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "91e8be33-3920-4913-96f9-9b707aae8a69")
+	)
+	(wire
+		(pts
 			(xy 116.84 166.37) (xy 106.68 166.37)
 		)
 		(stroke
@@ -1813,16 +1974,6 @@
 			(type default)
 		)
 		(uuid "b8d92c06-f03f-4408-8d7f-9e0be6f86fc7")
-	)
-	(wire
-		(pts
-			(xy 124.46 63.5) (xy 124.46 91.44)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "c456f435-91f0-4d6a-891d-8f49c5ee86ad")
 	)
 	(wire
 		(pts
@@ -1906,6 +2057,16 @@
 	)
 	(wire
 		(pts
+			(xy 189.23 57.15) (xy 184.15 57.15)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "e89c8669-0a83-4aa0-849d-9a697f389109")
+	)
+	(wire
+		(pts
 			(xy 179.07 105.41) (xy 190.5 105.41)
 		)
 		(stroke
@@ -1924,6 +2085,16 @@
 		)
 		(uuid "ffc3036c-70ba-44e9-a1cf-a26b1e482337")
 	)
+	(label "USB_DP_CONN"
+		(at 134.62 109.22 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "0c3423a4-af29-4ed1-9642-8a514ba19323")
+	)
 	(label "VBUS_RAW"
 		(at 204.47 107.95 0)
 		(effects
@@ -1935,7 +2106,7 @@
 		(uuid "3f75ed65-7d1b-4303-a636-cae26a73cdf5")
 	)
 	(label "VBUS_RAW"
-		(at 124.46 78.74 0)
+		(at 124.46 63.5 0)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -1943,6 +2114,26 @@
 			(justify left bottom)
 		)
 		(uuid "749368a1-d3c3-4318-9195-6e94cd189f16")
+	)
+	(label "VBUS_RAW"
+		(at 189.23 57.15 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "929beb77-27d7-4543-8c97-305b4a1355a7")
+	)
+	(label "USB_DM_CONN"
+		(at 134.62 104.14 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "9608c673-1823-4884-ab2b-c8fe69de503a")
 	)
 	(hierarchical_label "USB_DM"
 		(shape bidirectional)
@@ -2453,17 +2644,33 @@
 		)
 	)
 	(symbol
-		(lib_id "power:+5V")
-		(at 124.46 63.5 0)
+		(lib_id "Device:NetTie_2")
+		(at 181.61 57.15 180)
 		(unit 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(dnp no)
 		(fields_autoplaced yes)
-		(uuid "53f4d749-9ade-4ca6-ad35-1e5f3560c807")
-		(property "Reference" "#PWR03"
-			(at 124.46 67.31 0)
+		(uuid "42191628-7723-42ab-9da9-08270a458052")
+		(property "Reference" "NT1"
+			(at 181.61 52.07 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "NetTie_2"
+			(at 181.61 54.61 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "NetTie:NetTie-2_SMD_Pad0.5mm"
+			(at 181.61 57.15 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2471,16 +2678,8 @@
 				(hide yes)
 			)
 		)
-		(property "Value" "+5V"
-			(at 124.46 58.42 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" ""
-			(at 124.46 63.5 0)
+		(property "Datasheet" "~"
+			(at 181.61 57.15 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2488,17 +2687,8 @@
 				(hide yes)
 			)
 		)
-		(property "Datasheet" ""
-			(at 124.46 63.5 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Power symbol creates a global label with name \"+5V\""
-			(at 124.46 63.5 0)
+		(property "Description" "Net tie, 2 pins"
+			(at 181.61 57.15 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2507,12 +2697,15 @@
 			)
 		)
 		(pin "1"
-			(uuid "e234e110-172e-4580-9471-cbb7506a128b")
+			(uuid "df9df03c-c9c0-4a76-b2d2-6f691b913282")
+		)
+		(pin "2"
+			(uuid "9d138b63-e58f-4a1e-8ae9-41387eae45b3")
 		)
 		(instances
 			(project ""
 				(path "/75c44e6f-0ea5-4980-b537-2044bb5bee98/198e42d4-2f3d-48b3-a242-d90132e348d6"
-					(reference "#PWR03")
+					(reference "NT1")
 					(unit 1)
 				)
 			)
@@ -2785,6 +2978,72 @@
 			(project ""
 				(path "/75c44e6f-0ea5-4980-b537-2044bb5bee98/198e42d4-2f3d-48b3-a242-d90132e348d6"
 					(reference "C1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:+5V")
+		(at 171.45 54.61 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "c8e22c25-730f-4358-8cf3-669d77b40b8e")
+		(property "Reference" "#PWR03"
+			(at 171.45 58.42 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "+5V"
+			(at 171.45 49.53 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 171.45 54.61 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 171.45 54.61 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"+5V\""
+			(at 171.45 54.61 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "42213976-9b62-4d4a-93b4-4ed89cd4d53a")
+		)
+		(instances
+			(project ""
+				(path "/75c44e6f-0ea5-4980-b537-2044bb5bee98/198e42d4-2f3d-48b3-a242-d90132e348d6"
+					(reference "#PWR03")
 					(unit 1)
 				)
 			)

@@ -4,6 +4,11 @@
 	(generator_version "9.0")
 	(uuid "75c44e6f-0ea5-4980-b537-2044bb5bee98")
 	(paper "A4")
+	(title_block
+		(title "Jetson Orin Nano Controller")
+		(date "2025-10-22")
+		(rev "1")
+	)
 	(lib_symbols)
 	(wire
 		(pts
