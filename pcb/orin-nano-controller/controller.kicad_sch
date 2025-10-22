@@ -7065,7 +7065,7 @@
 				)
 			)
 		)
-		(property "Value" "0.1 µF"
+		(property "Value" "0.1 μF"
 			(at 77.343 35.56 90)
 			(effects
 				(font
