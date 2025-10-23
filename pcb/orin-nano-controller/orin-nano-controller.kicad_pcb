@@ -7500,7 +7500,7 @@
 				(justify mirror)
 			)
 		)
-		(property "LCSC" "C107365"
+		(property "LCSC" "C28323"
 			(at 0 0 0)
 			(layer "B.SilkS")
 			(hide yes)
@@ -7738,7 +7738,7 @@
 				(justify mirror)
 			)
 		)
-		(property "LCSC" "C107365"
+		(property "LCSC" "C28323"
 			(at 0 0 90)
 			(layer "B.SilkS")
 			(hide yes)
@@ -8212,6 +8212,18 @@
 					(thickness 0.15)
 				)
 				(justify mirror)
+			)
+		)
+		(property "LCSC" "C404027"
+			(at 0 0 0)
+			(layer "B.SilkS")
+			(hide yes)
+			(uuid "476eec57-7de4-4335-9fb5-d2102efac118")
+			(effects
+				(font
+					(size 1.27 1.27)
+					(thickness 0.15)
+				)
 			)
 		)
 		(property ki_fp_filters "SOT?23*")
