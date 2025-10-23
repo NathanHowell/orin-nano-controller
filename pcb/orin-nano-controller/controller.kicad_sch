@@ -5355,7 +5355,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "0.1 μF"
+		(property "Value" "0.1 uF"
 			(at 41.91 58.5469 0)
 			(effects
 				(font
@@ -6334,7 +6334,7 @@
 				)
 			)
 		)
-		(property "Value" "0.1 µF"
+		(property "Value" "0.1 uF"
 			(at 192.913 115.57 90)
 			(effects
 				(font
@@ -6942,7 +6942,7 @@
 				)
 			)
 		)
-		(property "Value" "1 µF"
+		(property "Value" "1 uF"
 			(at 208.153 46.99 90)
 			(effects
 				(font
@@ -7010,7 +7010,7 @@
 				)
 			)
 		)
-		(property "Value" "4.7 µF"
+		(property "Value" "4.7 uF"
 			(at 77.343 21.59 90)
 			(effects
 				(font
@@ -7078,7 +7078,7 @@
 				)
 			)
 		)
-		(property "Value" "0.1 μF"
+		(property "Value" "0.1 uF"
 			(at 77.343 35.56 90)
 			(effects
 				(font
@@ -7213,7 +7213,7 @@
 				)
 			)
 		)
-		(property "Value" "0.1 µF"
+		(property "Value" "0.1 uF"
 			(at 208.153 63.5 90)
 			(effects
 				(font
