@@ -1,7 +1,4 @@
 *-backups/
 *.lck
-
-
-# Added by cargo
-
 /target
+/.codex/
