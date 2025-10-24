@@ -8,6 +8,7 @@ extern crate panic_halt;
 use embassy_executor::Spawner;
 
 mod bridge;
+mod repl;
 mod straps;
 mod telemetry;
 
