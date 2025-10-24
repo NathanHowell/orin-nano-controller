@@ -11,7 +11,7 @@
 use embassy_time::{Duration, Instant};
 use heapless::{HistoryBuffer, OldestOrdered};
 
-use crate::straps::{EventId, StrapAction, StrapLineId, TelemetryEventKind};
+use crate::straps::{EventId, StrapAction, StrapLineId, StrapSequenceKind, TelemetryEventKind};
 
 /// Total number of telemetry entries retained in memory.
 pub const TELEMETRY_RING_CAPACITY: usize = 128;
@@ -26,6 +26,8 @@ pub enum TelemetryPayload {
     None,
     /// Details captured when a strap assertion or release occurs.
     Strap(StrapTelemetry),
+    /// Metadata emitted for command queue events.
+    Command(CommandTelemetry),
 }
 
 impl TelemetryPayload {
@@ -38,6 +40,13 @@ pub struct StrapTelemetry {
     pub line: StrapLineId,
     pub action: StrapAction,
     pub elapsed_since_previous: Option<Duration>,
+}
+
+/// Metadata describing queued-command telemetry events.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CommandTelemetry {
+    pub queue_depth: u8,
+    pub pending_for: Option<Duration>,
 }
 
 /// Telemetry record stored in the ring buffer.
@@ -130,6 +139,56 @@ impl TelemetryRecorder {
 
         id
     }
+
+    /// Records a queued command that cannot start immediately.
+    pub fn record_command_pending(
+        &mut self,
+        kind: StrapSequenceKind,
+        queue_depth: usize,
+        requested_at: Instant,
+        timestamp: Instant,
+    ) -> EventId {
+        let wait = timestamp.saturating_duration_since(requested_at);
+        let payload = TelemetryPayload::Command(CommandTelemetry {
+            queue_depth: truncate_depth(queue_depth),
+            pending_for: Some(wait),
+        });
+
+        let id = self.record(TelemetryEventKind::CommandPending(kind), payload, timestamp);
+        log_command_event(
+            CommandStage::Pending,
+            kind,
+            timestamp,
+            queue_depth,
+            Some(wait),
+        );
+        id
+    }
+
+    /// Records the moment a queued command begins execution.
+    pub fn record_command_started(
+        &mut self,
+        kind: StrapSequenceKind,
+        queue_depth: usize,
+        requested_at: Instant,
+        timestamp: Instant,
+    ) -> EventId {
+        let wait = timestamp.saturating_duration_since(requested_at);
+        let payload = TelemetryPayload::Command(CommandTelemetry {
+            queue_depth: truncate_depth(queue_depth),
+            pending_for: Some(wait),
+        });
+
+        let id = self.record(TelemetryEventKind::CommandStarted(kind), payload, timestamp);
+        log_command_event(
+            CommandStage::Started,
+            kind,
+            timestamp,
+            queue_depth,
+            Some(wait),
+        );
+        id
+    }
 }
 
 impl Default for TelemetryRecorder {
@@ -150,12 +209,7 @@ fn log_strap_transition(
     let elapsed_us = elapsed.map(|value| value.as_micros());
 
     match elapsed_us {
-        Some(delta) => emit_log(
-            line_label,
-            action_label,
-            timestamp_us,
-            Some(delta),
-        ),
+        Some(delta) => emit_log(line_label, action_label, timestamp_us, Some(delta)),
         None => emit_log(line_label, action_label, timestamp_us, None),
     }
 }
@@ -171,12 +225,7 @@ fn emit_log(line: &'static str, action: &'static str, timestamp_us: u64, delta_u
             delta
         );
     } else {
-        defmt::info!(
-            "telemetry:straps {} {} t={}us",
-            line,
-            action,
-            timestamp_us
-        );
+        defmt::info!("telemetry:straps {} {} t={}us", line, action, timestamp_us);
     }
 }
 
@@ -208,10 +257,105 @@ const fn strap_action_label(action: StrapAction) -> &'static str {
     }
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum CommandStage {
+    Pending,
+    Started,
+}
+
+fn log_command_event(
+    stage: CommandStage,
+    kind: StrapSequenceKind,
+    timestamp: Instant,
+    queue_depth: usize,
+    wait: Option<Duration>,
+) {
+    let stage_label = command_stage_label(stage);
+    let kind_label = sequence_kind_label(kind);
+    let timestamp_us = timestamp.as_micros();
+    let queue_depth = u32::from(truncate_depth(queue_depth));
+    let wait_us = wait.map(|value| value.as_micros());
+
+    emit_command_log(stage_label, kind_label, timestamp_us, queue_depth, wait_us);
+}
+
+const fn truncate_depth(depth: usize) -> u8 {
+    if depth > u8::MAX as usize {
+        u8::MAX
+    } else {
+        depth as u8
+    }
+}
+
+const fn command_stage_label(stage: CommandStage) -> &'static str {
+    match stage {
+        CommandStage::Pending => "pending",
+        CommandStage::Started => "started",
+    }
+}
+
+const fn sequence_kind_label(kind: StrapSequenceKind) -> &'static str {
+    match kind {
+        StrapSequenceKind::NormalReboot => "NormalReboot",
+        StrapSequenceKind::RecoveryEntry => "RecoveryEntry",
+        StrapSequenceKind::RecoveryImmediate => "RecoveryImmediate",
+        StrapSequenceKind::FaultRecovery => "FaultRecovery",
+    }
+}
+
+#[cfg(target_os = "none")]
+fn emit_command_log(
+    stage: &'static str,
+    kind: &'static str,
+    timestamp_us: u64,
+    queue_depth: u32,
+    wait_us: Option<u64>,
+) {
+    if let Some(wait) = wait_us {
+        defmt::info!(
+            "telemetry:command {} kind={} depth={} t={}us wait={}us",
+            stage,
+            kind,
+            queue_depth,
+            timestamp_us,
+            wait
+        );
+    } else {
+        defmt::info!(
+            "telemetry:command {} kind={} depth={} t={}us",
+            stage,
+            kind,
+            queue_depth,
+            timestamp_us
+        );
+    }
+}
+
+#[cfg(not(target_os = "none"))]
+fn emit_command_log(
+    stage: &'static str,
+    kind: &'static str,
+    timestamp_us: u64,
+    queue_depth: u32,
+    wait_us: Option<u64>,
+) {
+    if let Some(wait) = wait_us {
+        println!(
+            "telemetry:command {} kind={} depth={} t={}us wait={}us",
+            stage, kind, queue_depth, timestamp_us, wait
+        );
+    } else {
+        println!(
+            "telemetry:command {} kind={} depth={} t={}us",
+            stage, kind, queue_depth, timestamp_us
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::straps::{StrapAction, StrapLineId};
+    use crate::straps::{StrapAction, StrapLineId, StrapSequenceKind};
 
     fn micros(value: u64) -> Instant {
         Instant::from_micros(value)
@@ -221,11 +365,18 @@ mod tests {
     fn records_elapsed_between_strap_events() {
         let mut recorder = TelemetryRecorder::new();
 
-        let id1 = recorder.record_strap_transition(StrapLineId::Reset, StrapAction::AssertLow, micros(100));
+        let id1 = recorder.record_strap_transition(
+            StrapLineId::Reset,
+            StrapAction::AssertLow,
+            micros(100),
+        );
         assert_eq!(id1, 0);
 
         let first = recorder.latest().copied().unwrap();
-        assert_eq!(first.event, TelemetryEventKind::StrapAsserted(StrapLineId::Reset));
+        assert_eq!(
+            first.event,
+            TelemetryEventKind::StrapAsserted(StrapLineId::Reset)
+        );
         match first.details {
             TelemetryPayload::Strap(details) => {
                 assert_eq!(details.elapsed_since_previous, None);
@@ -233,7 +384,11 @@ mod tests {
             _ => panic!("expected strap payload"),
         }
 
-        let id2 = recorder.record_strap_transition(StrapLineId::Reset, StrapAction::ReleaseHigh, micros(250));
+        let id2 = recorder.record_strap_transition(
+            StrapLineId::Reset,
+            StrapAction::ReleaseHigh,
+            micros(250),
+        );
         assert_eq!(id2, 1);
 
         let second = recorder.latest().copied().unwrap();
@@ -243,6 +398,73 @@ mod tests {
                 assert_eq!(elapsed.as_micros(), 150);
             }
             _ => panic!("expected strap payload"),
+        }
+    }
+
+    #[test]
+    fn records_command_pending_event() {
+        let mut recorder = TelemetryRecorder::new();
+        let requested_at = micros(100);
+        let timestamp = micros(220);
+
+        let id = recorder.record_command_pending(
+            StrapSequenceKind::NormalReboot,
+            2,
+            requested_at,
+            timestamp,
+        );
+        assert_eq!(id, 0);
+
+        let record = recorder.latest().copied().unwrap();
+        assert_eq!(
+            record.event,
+            TelemetryEventKind::CommandPending(StrapSequenceKind::NormalReboot)
+        );
+
+        match record.details {
+            TelemetryPayload::Command(details) => {
+                assert_eq!(details.queue_depth, 2);
+                let wait = details.pending_for.expect("missing pending duration");
+                assert_eq!(wait.as_micros(), 120);
+            }
+            _ => panic!("expected command payload"),
+        }
+    }
+
+    #[test]
+    fn records_command_started_event_with_truncated_depth() {
+        let mut recorder = TelemetryRecorder::new();
+        // Seed an initial event to bump the ID counter.
+        recorder.record_command_pending(
+            StrapSequenceKind::RecoveryEntry,
+            1,
+            micros(50),
+            micros(60),
+        );
+
+        let requested_at = micros(90);
+        let start_time = micros(500);
+        let id = recorder.record_command_started(
+            StrapSequenceKind::FaultRecovery,
+            300,
+            requested_at,
+            start_time,
+        );
+        assert_eq!(id, 1);
+
+        let record = recorder.latest().copied().unwrap();
+        assert_eq!(
+            record.event,
+            TelemetryEventKind::CommandStarted(StrapSequenceKind::FaultRecovery)
+        );
+
+        match record.details {
+            TelemetryPayload::Command(details) => {
+                assert_eq!(details.queue_depth, u8::MAX);
+                let wait = details.pending_for.expect("missing wait for start");
+                assert_eq!(wait.as_micros(), 410);
+            }
+            _ => panic!("expected command payload"),
         }
     }
 }

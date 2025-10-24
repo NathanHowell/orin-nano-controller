@@ -7,12 +7,13 @@
 
 #![allow(dead_code)]
 
-use embassy_time::{Duration, Timer};
-use heapless::Vec;
+use crate::telemetry::TelemetryRecorder;
+use embassy_time::{Duration, Instant, Timer};
+use heapless::{Deque, Vec};
 
 use super::{
-    CommandReceiver, SequenceCommand, SequenceError, SequenceOutcome, SequenceRun, SequenceState,
-    SequenceTemplate, StrapSequenceKind,
+    CommandReceiver, EventId, SequenceCommand, SequenceError, SequenceOutcome, SequenceRun,
+    SequenceState, SequenceTemplate, StrapSequenceKind, COMMAND_QUEUE_DEPTH,
 };
 
 /// Total number of sequence templates expected for this controller.
@@ -81,6 +82,12 @@ impl TemplateRegistry {
 pub enum TemplateRegistryError {
     /// Registry has reached [`MAX_SEQUENCE_TEMPLATES`].
     RegistryFull,
+}
+
+#[derive(Clone, Debug)]
+struct QueuedCommand {
+    command: SequenceCommand,
+    pending_event: Option<EventId>,
 }
 
 /// High-level orchestrator states mirroring the data-model FSM.
@@ -165,6 +172,7 @@ pub struct StrapOrchestrator<'a> {
     templates: TemplateRegistry,
     active_run: Option<SequenceRun>,
     last_rejection: Option<CommandRejection>,
+    pending_commands: Deque<QueuedCommand, COMMAND_QUEUE_DEPTH>,
 }
 
 impl<'a> StrapOrchestrator<'a> {
@@ -175,6 +183,7 @@ impl<'a> StrapOrchestrator<'a> {
             templates: TemplateRegistry::new(),
             active_run: None,
             last_rejection: None,
+            pending_commands: Deque::new(),
         }
     }
 
@@ -185,6 +194,7 @@ impl<'a> StrapOrchestrator<'a> {
             templates,
             active_run: None,
             last_rejection: None,
+            pending_commands: Deque::new(),
         }
     }
 
@@ -290,16 +300,31 @@ impl<'a> StrapOrchestrator<'a> {
     }
 
     /// Handles the intake of commands and basic lifecycle management.
-    pub async fn run(mut self) -> ! {
+    pub async fn run(mut self, telemetry: &mut TelemetryRecorder) -> ! {
         loop {
-            if self.active_run.is_none() {
-                let command = self.command_rx.receive().await;
-                match self.begin_run(command) {
+            if self.active_run.is_some() {
+                self.collect_pending_commands(telemetry);
+                self.process_active_run().await;
+                continue;
+            }
+
+            if let Some(queued) = self.pending_commands.pop_front() {
+                match self.start_queued_command(queued, telemetry) {
                     Ok(()) => self.last_rejection = None,
                     Err(rejection) => self.last_rejection = Some(rejection),
                 }
-            } else {
-                self.process_active_run().await;
+                continue;
+            }
+
+            let command = self.command_rx.receive().await;
+            let queued = QueuedCommand {
+                command,
+                pending_event: None,
+            };
+
+            match self.start_queued_command(queued, telemetry) {
+                Ok(()) => self.last_rejection = None,
+                Err(rejection) => self.last_rejection = Some(rejection),
             }
         }
     }
@@ -313,5 +338,78 @@ impl<'a> StrapOrchestrator<'a> {
         // Yield to allow other tasks to interact with the active run, e.g.,
         // advancing strap steps or performing safety checks.
         Timer::after(Duration::from_millis(1)).await;
+    }
+
+    fn collect_pending_commands(&mut self, telemetry: &mut TelemetryRecorder) {
+        while let Ok(command) = self.command_rx.try_receive() {
+            if self.pending_commands.is_full() {
+                self.last_rejection = Some(CommandRejection::busy(command));
+                continue;
+            }
+
+            let timestamp = Instant::now();
+            let queue_depth = self.pending_commands.len();
+            let event_id = telemetry.record_command_pending(
+                command.kind,
+                queue_depth,
+                command.requested_at,
+                timestamp,
+            );
+
+            let queued = QueuedCommand {
+                command,
+                pending_event: Some(event_id),
+            };
+
+            debug_assert!(
+                self.pending_commands.push_back(queued).is_ok(),
+                "pending command queue overflow"
+            );
+        }
+    }
+
+    fn start_queued_command(
+        &mut self,
+        queued: QueuedCommand,
+        telemetry: &mut TelemetryRecorder,
+    ) -> Result<(), CommandRejection> {
+        let pending_event = queued.pending_event;
+        let command = queued.command;
+
+        match self.begin_run(command) {
+            Ok(()) => {
+                if let Some(run) = self.active_run.as_mut() {
+                    if let Some(event_id) = pending_event {
+                        let _ = run.track_event(event_id);
+                    }
+
+                    let start_event = telemetry.record_command_started(
+                        run.command.kind,
+                        self.pending_commands.len(),
+                        run.command.requested_at,
+                        Instant::now(),
+                    );
+                    let _ = run.track_event(start_event);
+                }
+
+                Ok(())
+            }
+            Err(rejection) => {
+                if rejection.reason() == CommandRejectionReason::Busy {
+                    let queued = QueuedCommand {
+                        command: rejection.command().clone(),
+                        pending_event,
+                    };
+
+                    // If reinsertion fails the queue is full; drop the request after flagging busy.
+                    if self.pending_commands.push_front(queued).is_err() {
+                        self.last_rejection =
+                            Some(CommandRejection::busy(rejection.command().clone()));
+                    }
+                }
+
+                Err(rejection)
+            }
+        }
     }
 }

@@ -211,6 +211,8 @@ pub enum TelemetryEventKind {
     StrapReleased(StrapLineId),
     PowerStable,
     RecoveryConsoleActivity,
+    CommandPending(StrapSequenceKind),
+    CommandStarted(StrapSequenceKind),
     SequenceComplete(StrapSequenceKind),
     Custom(u16),
 }
@@ -358,6 +360,11 @@ impl SequenceRun {
         self.emitted_events.clear();
         self.waiting_on_bridge = false;
         self.state = SequenceState::Arming;
+    }
+
+    /// Records a telemetry event identifier associated with this run.
+    pub fn track_event(&mut self, event_id: EventId) -> bool {
+        self.emitted_events.push(event_id).is_ok()
     }
 }
 
