@@ -1,0 +1,93 @@
+digraph OrinControllerBootFSM {
+    rankdir = LR;
+    labelloc = "t";
+    label = "Orin Controller Boot & Strap State Machine";
+    fontsize = 12;
+
+    node [shape = rectangle, style = "rounded", fontsize = 10];
+
+    start [shape = point];
+    Idle [label = "Idle\n(queue empty)"];
+    start -> Idle;
+
+    Dequeue [label = "Dequeue next command\n(serialize requests)"];
+    Idle -> Dequeue [label = "command queued"];
+
+    CollisionReject [label = "Reject overlapping request\nlog BUSY + timestamp", shape = rectangle, style = "rounded,dashed"];
+    UsbSafe [label = "USB disconnect safe state\nrelease straps + notify host"];
+    BrownoutHold [label = "Brown-out hold\npause until VDD_3V3 ≥ 2.97 V"];
+    TelemetryFlush [label = "Flush telemetry & evidence\n(defmt + ring buffer)"];
+    SequenceError [label = "Surface error\nrelease straps & log", shape = hexagon];
+
+    Dequeue -> BrownoutHold [label = "VDD_3V3 < 2.97 V"];
+    BrownoutHold -> Dequeue [label = "rails stable"];
+
+    Dequeue -> UsbSafe [label = "USB cable removed"];
+    UsbSafe -> TelemetryFlush [label = "report safe state"];
+
+    Dequeue -> NormalPulsePwr [label = "Normal reboot"];
+    Dequeue -> RecoveryPreHold [label = "Recovery now/enter"];
+    Dequeue -> FaultAssertAPO [label = "Fault recover"];
+    Dequeue -> Idle [label = "no command", style = dashed];
+
+    SequenceError -> TelemetryFlush;
+    TelemetryFlush -> Idle;
+
+    subgraph cluster_normal {
+        label = "Normal Reboot Sequence";
+        color = "#bcd7ff";
+        style = "rounded,dashed";
+        NormalPulsePwr [label = "Drive PWR* low\n200 ms"];
+        NormalCooldown [label = "Cooldown 1 s"];
+        NormalPulseReset [label = "Drive RESET* low\n20 ms"];
+        NormalRelease [label = "Release PWR*/RESET*\nREC* stays high"];
+        NormalLog [label = "Stamp timing + success\ninto telemetry"];
+        NormalPulsePwr -> NormalCooldown -> NormalPulseReset -> NormalRelease -> NormalLog;
+    }
+    NormalLog -> TelemetryFlush;
+
+    subgraph cluster_recovery {
+        label = "Recovery Sequence";
+        color = "#ffd8b1";
+        style = "rounded,dashed";
+        RecoveryPreHold [label = "Assert REC* low\n100 ms pre-reset"];
+        RecoveryPulseReset [label = "Pulse RESET* low\n20 ms"];
+        RecoveryPostHold [label = "Hold REC* low\n+500 ms"];
+        RecoveryWaitUart [label = "Wait for UART activity\n(bridge CDC1)"];
+        RecoveryRelease [label = "Release REC*\nafter activity"];
+        RecoveryLog [label = "Log REC timings\n+ host detection"];
+        RecoveryPreHold -> RecoveryPulseReset -> RecoveryPostHold -> RecoveryWaitUart;
+        RecoveryWaitUart -> RecoveryRelease [label = "activity detected"];
+        RecoveryWaitUart -> SequenceError [label = "timeout"];
+        RecoveryRelease -> RecoveryLog -> TelemetryFlush;
+    }
+
+    subgraph cluster_fault {
+        label = "Fault Recovery Sequence";
+        color = "#d6f5d6";
+        style = "rounded,dashed";
+        FaultAssertAPO [label = "Assert APO low\n250 ms"];
+        FaultHold [label = "Hold for shutdown\nensure rails drop"];
+        FaultNormal [label = "Invoke normal reboot\n(timing reuse)"];
+        FaultVerify [label = "Verify boot banner\nor recovery status"];
+        FaultLog [label = "Log reason + retries"];
+        FaultRetry [label = "Retry bookkeeping\nincrement attempts"];
+        FaultAssertAPO -> FaultHold -> FaultNormal -> FaultVerify;
+        FaultVerify -> FaultLog [label = "boot observed"];
+        FaultLog -> TelemetryFlush;
+        FaultVerify -> FaultRetry [label = "no boot"];
+        FaultRetry -> FaultAssertAPO [label = "attempts < 3"];
+        FaultRetry -> SequenceError [label = "attempts = 3"];
+    }
+
+    NormalPulsePwr -> CollisionReject [label = "new command", style = dashed];
+    RecoveryPreHold -> CollisionReject [label = "new command", style = dashed];
+    FaultAssertAPO -> CollisionReject [label = "new command", style = dashed];
+    CollisionReject -> NormalPulsePwr [label = "continue sequence", style = dashed];
+    CollisionReject -> RecoveryPreHold [label = "continue sequence", style = dashed];
+    CollisionReject -> FaultAssertAPO [label = "continue sequence", style = dashed];
+
+    NormalPulsePwr -> BrownoutHold [label = "VDD sag", style = dotted];
+    RecoveryPreHold -> BrownoutHold [label = "VDD sag", style = dotted];
+    FaultAssertAPO -> BrownoutHold [label = "VDD sag", style = dotted];
+}

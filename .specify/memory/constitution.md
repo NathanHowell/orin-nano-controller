@@ -24,7 +24,7 @@ Follow-up TODOs:
 ## Core Principles
 
 ### I. Unified Pin Contracts
-- MUST document every connector pin, strap net, voltage rail, and reference designator change in `pcb/orin-nano-controller/BASELINE.md` before merging any hardware-affecting change.
+- MUST document every connector pin, strap net, voltage rail, and reference designator change in `pcb/orin-nano-controller/README.md` before merging any hardware-affecting change.
 - MUST keep KiCad net labels, BOM entries, and firmware abstractions (constants, type aliases, documentation comments) synchronized in the same change set when pinouts shift.
 - MUST block feature kick-off until the plan/spec explicitly cites the affected contract section and confirms the documentation is up to date.
 Rationale: A single, traceable source of truth keeps firmware behavior aligned with the physical board and prevents Jetson bring-up faults.
@@ -57,15 +57,16 @@ Rationale: Embedded bring-up relies on clear introspection and safe fallbacks wh
 
 - Firmware targets the STM32G0B1 and builds with `cargo` for `thumbv6m-none-eabi`; releases must remain `no_std` and panic with `panic-halt`.
 - Embassy crates (`embassy-executor`, `embassy-stm32`, `embassy-time`) and their enabled features are considered locked; proposals to change them require governance approval.
-- PCB design lives in KiCad; revisions MUST update `pcb/orin-nano-controller/*.kicad_*` files alongside `BASELINE.md` and note the revision in feature docs.
-- USB-C interface follows the BOM in `BASELINE.md`; capacitance and strap resistor values listed there are normative and deviations require explicit sign-off.
+- PCB design lives in KiCad; revisions MUST update `pcb/orin-nano-controller/*.kicad_*` files alongside `pcb/orin-nano-controller/README.md` and note the revision in feature docs.
+- USB-C interface follows the BOM in `pcb/orin-nano-controller/README.md`; capacitance and strap resistor values listed there are normative and deviations require explicit sign-off.
 - Mechanical interfaces (Samtec J14, SWD header) must preserve current footprint orientation unless a migration plan is documented.
 
 ## Workflow & Quality Gates
 
-- Specs MUST include a `Hardware Interface Contracts` section mapping impacted pins, voltage domains, and timing budgets, citing `BASELINE.md` line items.
+- Specs MUST include a `Hardware Interface Contracts` section mapping impacted pins, voltage domains, and timing budgets, citing `pcb/orin-nano-controller/README.md` line items.
 - Implementation plans MUST answer the Constitution Check gate list, including the boot state machine diagram, validation strategy, and observability hooks.
 - Task breakdowns MUST include hardware-in-the-loop validation work, evidence capture, and documentation updates before marking stories complete.
+- Before starting a new implementation phase or marking any task complete, contributors MUST run `just check` at the repository root (which invokes rustfmt, Clippy, and tests) and resolve all failures.
 - Code reviews MUST verify that firmware modules isolate board-specific details and that instrumentation/recovery updates are documented.
 - Monthly (or feature-level) retrospectives MUST schedule a compliance review to confirm principles remain enforceable and update templates when drift is detected.
 
