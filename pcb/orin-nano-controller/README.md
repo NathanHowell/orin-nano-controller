@@ -2,14 +2,14 @@
 
 ## Jetson J14 Strap Control (`J2`)
 
-Four Jetson boot/control straps land on the 12-pin right-angle socket (`J2`). They are driven by two SN74LVC2G07 dual open-drain buffers: `IC1` handles the APO and RESET lanes, `IC2` handles RECOVERY and POWER. The STM32 drives the buffer inputs on nets `OAPO`, `ORST`, `OREC`, and `OPWR`; each input has an on-board 100 kΩ pull-down (`RA0–RA3`) so the straps idle de-asserted while the MCU boots.
+Four Jetson boot/control straps land on the 12-pin right-angle socket (`J2`). They are driven by two SN74LVC2G07 dual open-drain buffers: `IC1` handles the APO and RESET lanes, `IC2` handles RECOVERY and POWER. The STM32 drives the buffer inputs on nets `OAPO`, `ORST`, `OREC`, and `OPWR`; each input has an on-board 100 kΩ pull-down (`RA0–RA3`) so the straps idle de-asserted while the MCU boots. The bench harness fans out to the Jetson front-panel header (`J14`, 2x7) using the cross-reference below.
 
-| J2 pin | Jetson net | Driver channel | MCU pin (net) | Active level | Notes |
-| --- | --- | --- | --- | --- | --- |
-| 5 | APO strap | `IC1` 1Y | PA5 (`OAPO`) | Assert by pulling low (MCU drives input high) | Adjacent return on pin 7 (GND) |
-| 8 | RESET strap | `IC1` 2Y | PA4 (`ORST`) | Assert low | Return on pin 9 (GND) |
-| 10 | RECOVERY strap | `IC2` 1Y | PA3 (`OREC`) | Assert low | Return on pin 11 (GND) |
-| 12 | POWER strap | `IC2` 2Y | PA2 (`OPWR`) | Assert low | Shares return on pin 11 (GND) |
+| Jetson J14 pin | Jetson label | Controller J2 pin | Driver channel | MCU pin (net) | Active level | Harness notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| 5 | `APO` (force shutdown) | 5 | `IC1` 1Y | PA5 (`OAPO`) | Assert by pulling low (MCU drives input high) | Ground return on J14-7 / J2-7 (GND) |
+| 8 | `RESET*` | 8 | `IC1` 2Y | PA4 (`ORST`) | Assert low | Ground return on J14-9 / J2-9 (GND) |
+| 10 | `REC*` (force recovery) | 10 | `IC2` 1Y | PA3 (`OREC`) | Assert low | Ground return on J14-11 / J2-11 (GND) |
+| 12 | `PWR*` (power button) | 12 | `IC2` 2Y | PA2 (`OPWR`) | Assert low (200 ms pulse) | Shares ground return on J14-11 / J2-11 (GND) |
 
 - Open-drain outputs only sink current; the Jetson carrier (or cable) must provide the pull-ups.
 - Supply pin 5 of both buffers ties to the local `+3V3` rail.
