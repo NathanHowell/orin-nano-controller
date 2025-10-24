@@ -29,8 +29,8 @@ description: "Task list template for feature implementation"
 
 **Purpose**: Confirm documentation, tooling, and bench instrumentation prerequisites before firmware work begins.
 
-- [ ] T001 Update strap pin cross-reference to match current harness in `pcb/orin-nano-controller/README.md`.
-- [ ] T002 [P] Record bench instrumentation checklist (logic analyzer, oscilloscope, SWD probe) in `specs/001-build-orin-controller/evidence/bench-setup.md`.
+- [x] T001 Update strap pin cross-reference to match current harness in `pcb/orin-nano-controller/README.md`.
+- [x] T002 [P] Record bench instrumentation checklist (logic analyzer, oscilloscope, SWD probe) in `specs/001-build-orin-controller/evidence/bench-setup.md`.
 - [ ] T003 [P] Add `thumbv6m-none-eabi` default target configuration to `firmware/.cargo/config.toml`.
 - [ ] T004 [P] Pin the workspace toolchain to Rust 1.90.0 in `rust-toolchain.toml`.
 
