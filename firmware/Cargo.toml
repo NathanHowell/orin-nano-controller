@@ -9,4 +9,6 @@ cortex-m-rt = "0.7.5"
 embassy-executor = { version = "0.9.1", features = ["arch-cortex-m", "executor-thread"] }
 embassy-stm32 = { version = "0.4.0", features = ["memory-x", "stm32g0b1ke", "time-driver-tim1"] }
 embassy-time = "0.5.0"
+embassy-sync = "0.7.2"
 panic-halt = "1.0.0"
+heapless = "0.8.0"

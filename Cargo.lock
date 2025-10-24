@@ -518,7 +518,9 @@ dependencies = [
  "cortex-m-rt",
  "embassy-executor",
  "embassy-stm32",
+ "embassy-sync",
  "embassy-time",
+ "heapless",
  "panic-halt",
 ]
 
