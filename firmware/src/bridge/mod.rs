@@ -169,10 +169,10 @@ impl<'a> BridgeActivityMonitor<'a> {
 
     /// Processes a single pending activity event, if available.
     pub fn poll(&mut self) -> Option<BridgeActivityEvent> {
-        self.subscriber.try_receive().ok().map(|event| {
-            self.track(&event);
-            event
-        })
+        self.subscriber
+            .try_receive()
+            .ok()
+            .inspect(|event| self.track(event))
     }
 
     fn track(&mut self, event: &BridgeActivityEvent) {

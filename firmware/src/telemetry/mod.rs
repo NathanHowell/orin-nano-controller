@@ -352,7 +352,7 @@ fn emit_command_log(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_os = "none")))]
 mod tests {
     use super::*;
     use crate::straps::{StrapAction, StrapLineId, StrapSequenceKind};
