@@ -6,12 +6,19 @@
 
 use core::fmt;
 
-use embassy_sync::{
-    blocking_mutex::raw::ThreadModeRawMutex,
-    channel::{Channel, Receiver, Sender},
-};
+use embassy_sync::channel::{Channel, Receiver, Sender};
 use embassy_time::{Duration, Instant};
 use heapless::Vec;
+
+#[cfg(not(target_os = "none"))]
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+#[cfg(target_os = "none")]
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+
+#[cfg(target_os = "none")]
+type StrapMutex = ThreadModeRawMutex;
+#[cfg(not(target_os = "none"))]
+type StrapMutex = NoopRawMutex;
 
 /// Maximum number of steps allowed in a single strap sequence.
 pub const MAX_SEQUENCE_STEPS: usize = 16;
@@ -345,11 +352,10 @@ impl SequenceRun {
 }
 
 /// Queue used to coordinate strap sequence commands.
-pub type CommandQueue = Channel<ThreadModeRawMutex, SequenceCommand, COMMAND_QUEUE_DEPTH>;
+pub type CommandQueue = Channel<StrapMutex, SequenceCommand, COMMAND_QUEUE_DEPTH>;
 
 /// Convenience sender type alias for the strap command queue.
-pub type CommandSender<'a> = Sender<'a, ThreadModeRawMutex, SequenceCommand, COMMAND_QUEUE_DEPTH>;
+pub type CommandSender<'a> = Sender<'a, StrapMutex, SequenceCommand, COMMAND_QUEUE_DEPTH>;
 
 /// Convenience receiver type alias for the strap command queue.
-pub type CommandReceiver<'a> =
-    Receiver<'a, ThreadModeRawMutex, SequenceCommand, COMMAND_QUEUE_DEPTH>;
+pub type CommandReceiver<'a> = Receiver<'a, StrapMutex, SequenceCommand, COMMAND_QUEUE_DEPTH>;
