@@ -44,7 +44,7 @@ description: "Task list template for feature implementation"
 - [x] T006 [P] Implement `StrapOrchestrator` skeleton with `SequenceRun` state machine and command queue stubs in `firmware/src/straps/orchestrator.rs`.
 - [x] T007 [P] Set up `TelemetryRecord` ring buffer and defmt logging hooks with strap-transition timestamps and elapsed timing capture in `firmware/src/telemetry/mod.rs`.
 - [x] T041 Implement queued-command telemetry markers (pending and start events) in `firmware/src/telemetry/mod.rs` and wire emission through `firmware/src/straps/orchestrator.rs` so FR-005 evidence is available for validation.
-- [ ] T008 [P] Define bounded USB↔UART bridge channels and activity monitor placeholders in `firmware/src/bridge/mod.rs`.
+- [x] T008 [P] Define bounded USB↔UART bridge channels and activity monitor placeholders in `firmware/src/bridge/mod.rs`.
 - [ ] T009 [P] Add REPL session scaffolding (lexer, parser stubs, command dispatcher traits) in `firmware/src/repl/mod.rs`, bound exclusively to the CDC0 USB host link.
 - [ ] T010 [P] Create dual-CDC composite USB builder skeleton exposing REPL and bridge interfaces in `firmware/src/usb/mod.rs`.
 - [ ] T011 Wire Embassy executor init, peripheral setup, and task spawning for straps, bridge, USB, and REPL in `firmware/src/main.rs`.

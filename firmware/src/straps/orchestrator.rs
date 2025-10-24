@@ -12,8 +12,8 @@ use embassy_time::{Duration, Instant, Timer};
 use heapless::{Deque, Vec};
 
 use super::{
-    CommandReceiver, EventId, SequenceCommand, SequenceError, SequenceOutcome, SequenceRun,
-    SequenceState, SequenceTemplate, StrapSequenceKind, COMMAND_QUEUE_DEPTH,
+    COMMAND_QUEUE_DEPTH, CommandReceiver, EventId, SequenceCommand, SequenceError, SequenceOutcome,
+    SequenceRun, SequenceState, SequenceTemplate, StrapSequenceKind,
 };
 
 /// Total number of sequence templates expected for this controller.

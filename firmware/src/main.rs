@@ -7,6 +7,7 @@ extern crate panic_halt;
 #[cfg(target_os = "none")]
 use embassy_executor::Spawner;
 
+mod bridge;
 mod straps;
 mod telemetry;
 
