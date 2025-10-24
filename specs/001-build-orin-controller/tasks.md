@@ -41,7 +41,7 @@ description: "Task list template for feature implementation"
 **Purpose**: Establish baseline modules and async scaffolding required by all user stories. Complete before starting story-specific work.
 
 - [x] T005 Create strap data structures (`StrapLine`, `StrapSequenceKind`, etc.) per data-model in `firmware/src/straps/mod.rs`.
-- [ ] T006 [P] Implement `StrapOrchestrator` skeleton with `SequenceRun` state machine and command queue stubs in `firmware/src/straps/orchestrator.rs`.
+- [x] T006 [P] Implement `StrapOrchestrator` skeleton with `SequenceRun` state machine and command queue stubs in `firmware/src/straps/orchestrator.rs`.
 - [ ] T007 [P] Set up `TelemetryRecord` ring buffer and defmt logging hooks with strap-transition timestamps and elapsed timing capture in `firmware/src/telemetry/mod.rs`.
 - [ ] T041 Implement queued-command telemetry markers (pending and start events) in `firmware/src/telemetry/mod.rs` and wire emission through `firmware/src/straps/orchestrator.rs` so FR-005 evidence is available for validation.
 - [ ] T008 [P] Define bounded USB↔UART bridge channels and activity monitor placeholders in `firmware/src/bridge/mod.rs`.

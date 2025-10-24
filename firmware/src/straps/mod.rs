@@ -4,6 +4,10 @@
 //! `specs/001-build-orin-controller/data-model.md` and provide the shared
 //! abstractions required by the future orchestrator implementation.
 
+#![allow(dead_code)]
+
+pub mod orchestrator;
+
 use core::fmt;
 
 use embassy_sync::channel::{Channel, Receiver, Sender};
@@ -21,7 +25,13 @@ type StrapMutex = ThreadModeRawMutex;
 type StrapMutex = NoopRawMutex;
 
 /// Maximum number of steps allowed in a single strap sequence.
-pub const MAX_SEQUENCE_STEPS: usize = 16;
+///
+/// The longest planned template (`FaultRecovery`) insists on seven strap actions
+/// (APO pre-hold, REC pre/post windows, RESET pulse, PWR cycle). Keeping a bit
+/// of headroom lands on eight steps, which trims the `SequenceTemplate` footprint
+/// enough for clippy's `result_large_err` lint without constraining upcoming
+/// sequences.
+pub const MAX_SEQUENCE_STEPS: usize = 8;
 
 /// Maximum number of telemetry events tracked for a single sequence run.
 pub const MAX_EMITTED_EVENTS: usize = 16;

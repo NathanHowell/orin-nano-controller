@@ -2,3 +2,16 @@
 *.lck
 /target
 /.codex/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+debug/
+release/
+*.rlib
+*.rs.bk
+*.prof*
+*.log
+*.tmp
+*.swp
+.env*
