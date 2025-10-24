@@ -8,6 +8,7 @@ extern crate panic_halt;
 use embassy_executor::Spawner;
 
 mod straps;
+mod telemetry;
 
 #[cfg(target_os = "none")]
 #[embassy_executor::main]
