@@ -41,7 +41,7 @@ description: "Task list template for feature implementation"
 
 **Purpose**: Establish the shared controller-core crate, workspace wiring, and crate scaffolding required by every user story.
 
-- [ ] T005 Create the `controller-core` crate skeleton with `#![no_std]` defaults in `controller-core/Cargo.toml` and `controller-core/src/lib.rs`.
+- [X] T005 Create the `controller-core` crate skeleton with `#![no_std]` defaults in `controller-core/Cargo.toml` and `controller-core/src/lib.rs`.
 - [ ] T006 [P] Implement strap data structures (`StrapLine`, `SequenceTemplate`, `StrapStep`) per the data model in `controller-core/src/sequences/mod.rs`.
 - [ ] T007 [P] Define the command queue and `SequenceRun` state machine traits in `controller-core/src/orchestrator/mod.rs`.
 - [ ] T008 [P] Implement REPL tokenization and grammar parsing using `logos` + `winnow` in `controller-core/src/repl/grammar.rs`.
