@@ -5,6 +5,8 @@
 **Status**: Draft  
 **Input**: User description: "we are building a hardware device to control the Nvidia Jetson Orin"
 
+Scope now mandates a shared `controller-core` crate that owns strap orchestration and REPL parsing, a `firmware` crate that binds those traits to STM32G0 hardware, and an `emulator` crate that exposes the same REPL behavior on a host PC for parity validation.
+
 ## Hardware Interface Contracts *(mandatory)*
 
 ### Pin & Signal Map
@@ -36,6 +38,7 @@
 - Measure 3.3 V rail ripple under strap activity with an oscilloscope, saving annotated screenshots demonstrating <50 mVpp ripple.  
 - Document SWD reflashing procedure with step-by-step photos or screenshots that confirm MCU recovery path.  
 - Record USB enumeration logs from host PC confirming Jetson detection after controller-driven sequences; archive text exports alongside trace data.
+- Capture `emulator` crate REPL transcripts that issue the same sequences as hardware, demonstrating shared `controller-core` behavior and evidence of host parity; store logs under `specs/001-build-orin-controller/evidence/`.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -94,12 +97,14 @@ A field technician must hard-stop a wedged Jetson and restore normal operation u
 
 ### Functional Requirements
 
-- **FR-001**: Controller MUST provide selectable sequences for normal reboot, recovery entry, and fault recovery, each aligning with defined timing windows.  
-- **FR-002**: *Retired requirement placeholder.* No additional behavior; retained for historical traceability after deprecating on-device storage telemetry.
-- **FR-003**: Operators MUST trigger sequences via the directly connected maintenance host over the USB-C CDC0 REPL; the firmware MUST NOT expose alternate command transports.  
-- **FR-004**: Controller MUST emit timestamped telemetry for each strap transition via defmt logging so operators can capture evidence live.
-- **FR-005**: System MUST prevent conflicting strap states by enforcing serialized execution; while a sequence runs, additional requests queue until the active sequence completes, and the controller MUST surface telemetry indicating queued requests and their eventual start times.
-- **FR-006**: The REPL MUST expose a `recovery now` command that (a) asserts the RECOVERY strap, (b) reboots the Jetson, and (c) holds RECOVERY asserted until Jetson UART activity is detected on the bridge CDC port, after which the strap is released automatically.
+- **FR-001**: Controller MUST provide selectable sequences for normal reboot, recovery entry, and fault recovery, each aligning with the documented timing windows.  
+- **FR-002**: Operators MUST trigger sequences via the directly connected maintenance host over the USB-C CDC0 REPL; the system MUST NOT expose alternate command transports.  
+- **FR-003**: Controller MUST emit timestamped telemetry for each strap transition via defmt logging so operators can capture evidence live.  
+- **FR-004**: System MUST prevent conflicting strap states by enforcing serialized execution; while a sequence runs, additional requests queue until the active sequence completes, and the controller MUST surface telemetry indicating queued requests and their eventual start times.  
+- **FR-005**: The REPL MUST expose a `recovery now` command that (a) asserts the RECOVERY strap, (b) reboots the Jetson, and (c) holds RECOVERY asserted until Jetson UART activity is detected on the bridge CDC port, after which the strap is released automatically.  
+- **FR-006**: Shared strap orchestration, command queueing, REPL grammar, and telemetry event definitions MUST live in a `controller-core` crate that compiles for both `thumbv6m-none-eabi` and host targets without depending on MCU peripherals.  
+- **FR-007**: The `firmware` crate MUST implement the `controller-core` traits using Embassy drivers, remain `#![no_std]`, and surface identical telemetry/observability hooks to the host view.  
+- **FR-008**: The `emulator` crate MUST link against `controller-core`, expose a host REPL that mirrors hardware behavior, and record parity runs as validation evidence stored with the feature artifacts.
 
 ### Boot & Strap Sequence Requirements *(mandatory when behavior changes)*
 
@@ -110,7 +115,7 @@ A field technician must hard-stop a wedged Jetson and restore normal operation u
 ### Observability & Recovery Requirements *(mandatory)*
 
 - **OR-001**: Provide documented SWD reflashing steps, including jumper or strap requirements, enabling MCU recovery without Jetson disassembly.  
-- **OR-002**: Derive per-run timing validation results from the live telemetry streams and capture them in host-accessible summaries so reviewers can confirm strap compliance without replaying raw logs.  
+- **OR-002**: Derive per-run timing validation results from the live telemetry streams (hardware and emulator) and capture them in host-accessible summaries so reviewers can confirm strap compliance without replaying raw logs.  
 - **OR-003**: Archive all bench evidence (logic traces, scope captures, USB logs) in `specs/001-build-orin-controller/evidence/` with metadata linking to test cases.
 
 ### Non-Functional Requirements
@@ -119,8 +124,10 @@ A field technician must hard-stop a wedged Jetson and restore normal operation u
 
 ### Key Entities *(include if feature involves data)*
 
-- **StrapControl Module**: Coordinates open-drain outputs for `RESET*`, `REC*`, `PWR*`, and `APO`, enforcing timing budgets and sequencing rules.  
-- **EvidenceLogger**: Streams telemetry events via defmt logging only, tagging each command with timestamps so the host tooling can capture evidence live without on-device storage.
+- **controller_core::orchestrator::StrapManager**: Hardware-agnostic state machine coordinating `RESET*`, `REC*`, `PWR*`, and `APO` via trait calls while enforcing timing budgets and serialized execution.  
+- **controller_core::repl::CommandProcessor**: Shared lexer/parser and dispatcher that validates REPL inputs, enqueues sequences, and surfaces telemetry markers to both firmware and emulator front ends.  
+- **controller_core::telemetry::Event**: Structured telemetry payload describing strap transitions, queue state, recovery/autorelease events, and evidence tags consumed by both targets.  
+- **emulator::session::HostBridge**: Host-specific adapter that implements the `controller-core` traits using timers, logging, and simulated UART activity to validate parity without MCU peripherals.
 
 ## Success Criteria *(mandatory)*
 
@@ -128,6 +135,7 @@ A field technician must hard-stop a wedged Jetson and restore normal operation u
 
 - **SC-001**: 95% of normal reboot commands complete with Jetson boot banner observed within 60 seconds.  
 - **SC-002**: Recovery mode entry succeeds in 10/10 bench trials, with host detecting the Jetson in recovery within 8 seconds.  
+- **SC-003**: Emulator parity runs generate telemetry sequences identical to hardware within ±5 ms timing tolerance and log parity results under `specs/001-build-orin-controller/evidence/`.  
 - **SC-004**: Telemetry evidence (logic trace plus live log output) is emitted for 100% of executed sequences and visible to the host during the active session.
 
 ## Assumptions & Dependencies
@@ -136,6 +144,7 @@ A field technician must hard-stop a wedged Jetson and restore normal operation u
 - Host control software will be delivered separately and can issue high-level sequence commands to the controller.  
 - Lab equipment (logic analyzer, oscilloscope, USB sniffing tools) is available for validation and ongoing diagnostics.  
 - Power input to the controller is a regulated 5 V source capable of supplying at least 1 A headroom for transients.
+- Workspace restructuring to include `controller-core`, `firmware`, and `emulator` crates completes before firmware story work begins so shared logic stays synchronized.
 
 ## Clarifications
 
