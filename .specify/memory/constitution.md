@@ -58,6 +58,7 @@ Rationale: Embedded bring-up relies on clear introspection and safe fallbacks wh
 - PCB design lives in KiCad; revisions MUST update `pcb/orin-nano-controller/*.kicad_*` files alongside `pcb/orin-nano-controller/README.md` and note the revision in feature docs.
 - USB-C interface follows the BOM in `pcb/orin-nano-controller/README.md`; capacitance and strap resistor values listed there are normative and deviations require explicit sign-off.
 - Mechanical interfaces (Samtec J14, SWD header) must preserve current footprint orientation unless a migration plan is documented.
+- Use async/await patterns with Embassy tasks for all I/O operations; blocking calls are forbidden outside critical sections.
 
 ## Workflow & Quality Gates
 
