@@ -10,5 +10,5 @@ members = [
 embassy-sync = "0.7.2"
 embassy-time = "0.5.0"
 heapless = "0.8.0"
-logos = { version = "0.14", default-features = false }
+logos = { version = "0.14", default-features = false, features = ["export_derive"] }
 winnow = { version = "0.6", default-features = false }

@@ -197,6 +197,11 @@ pub trait CommandQueueProducer {
         None
     }
 
+    /// Returns `true` when the queue reports that it currently holds no items.
+    fn is_empty(&self) -> Option<bool> {
+        self.len().map(|current| current == 0)
+    }
+
     /// Convenience helper that reports remaining slots when both capacity and
     /// length information are available.
     fn remaining(&self) -> Option<usize> {

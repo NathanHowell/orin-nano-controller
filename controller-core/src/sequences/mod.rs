@@ -204,15 +204,15 @@ impl TimingConstraintSet {
 
     /// Validate that a hold duration sits within the configured range.
     pub fn allows_hold(&self, hold_for: Milliseconds) -> bool {
-        if let Some(min) = self.min_hold {
-            if hold_for < min {
-                return false;
-            }
+        if let Some(min) = self.min_hold
+            && hold_for < min
+        {
+            return false;
         }
-        if let Some(max) = self.max_hold {
-            if hold_for > max {
-                return false;
-            }
+        if let Some(max) = self.max_hold
+            && hold_for > max
+        {
+            return false;
         }
         true
     }

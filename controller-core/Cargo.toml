@@ -11,3 +11,6 @@ default = []
 alloc = []
 
 [dependencies]
+logos = { workspace = true }
+winnow = { workspace = true }
+heapless = { workspace = true }
