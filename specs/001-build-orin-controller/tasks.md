@@ -64,7 +64,7 @@ description: "Task list template for feature implementation"
 - [x] T012 [US1] Implement `NormalReboot` sequence template (timings, cooldown) in `firmware/src/straps/sequences.rs`.
 - [x] T013 [P] [US1] Integrate queue-driven execution for `NormalReboot` in `firmware/src/straps/orchestrator.rs`.
 - [x] T014 [P] [US1] Implement `reboot` command (with optional `delay`) that enqueues `NormalReboot` in `firmware/src/repl/commands.rs`, confirming it is reachable only via the local CDC0 REPL.
-- [ ] T015 [P] [US1] Emit timestamped strap telemetry and success events for normal reboot in `firmware/src/telemetry/mod.rs`.
+- [x] T015 [P] [US1] Emit timestamped strap telemetry and success events for normal reboot in `firmware/src/telemetry/mod.rs`.
 - [ ] T039 [US1] Validate queued command serialization by issuing overlapping REPL requests and capturing defmt logs that show pending status and execution order in `specs/001-build-orin-controller/evidence/queue-serialization.log`.
 - [ ] T016 [US1] Capture logic analyzer trace for normal reboot and store it as `specs/001-build-orin-controller/evidence/normal-reboot.sal`.
 - [ ] T017 [US1] Document reboot timing evidence and observability notes in `specs/001-build-orin-controller/spec.md`.

@@ -345,6 +345,7 @@ pub struct SequenceRun {
     pub emitted_events: Vec<EventId, MAX_EMITTED_EVENTS>,
     pub retry_count: u8,
     pub waiting_on_bridge: bool,
+    pub sequence_started_at: Option<Instant>,
     pub(super) current_step_index: Option<usize>,
     pub(super) step_started_at: Option<Instant>,
     pub(super) step_deadline: Option<Instant>,
@@ -360,6 +361,7 @@ impl SequenceRun {
             emitted_events: Vec::new(),
             retry_count: 0,
             waiting_on_bridge: false,
+            sequence_started_at: None,
             current_step_index: None,
             step_started_at: None,
             step_deadline: None,
@@ -372,6 +374,7 @@ impl SequenceRun {
         self.retry_count = self.retry_count.saturating_add(1);
         self.emitted_events.clear();
         self.waiting_on_bridge = false;
+        self.sequence_started_at = None;
         self.state = SequenceState::Arming;
         self.current_step_index = None;
         self.step_started_at = None;

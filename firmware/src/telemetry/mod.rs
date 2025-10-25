@@ -11,7 +11,9 @@
 use embassy_time::{Duration, Instant};
 use heapless::{HistoryBuffer, OldestOrdered};
 
-use crate::straps::{EventId, StrapAction, StrapLineId, StrapSequenceKind, TelemetryEventKind};
+use crate::straps::{
+    EventId, SequenceOutcome, StrapAction, StrapLineId, StrapSequenceKind, TelemetryEventKind,
+};
 
 /// Total number of telemetry entries retained in memory.
 pub const TELEMETRY_RING_CAPACITY: usize = 128;
@@ -28,6 +30,8 @@ pub enum TelemetryPayload {
     Strap(StrapTelemetry),
     /// Metadata emitted for command queue events.
     Command(CommandTelemetry),
+    /// Summary information recorded when a strap sequence completes.
+    Sequence(SequenceTelemetry),
 }
 
 impl TelemetryPayload {
@@ -47,6 +51,14 @@ pub struct StrapTelemetry {
 pub struct CommandTelemetry {
     pub queue_depth: u8,
     pub pending_for: Option<Duration>,
+}
+
+/// Metadata describing the completion of a strap sequence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SequenceTelemetry {
+    pub outcome: SequenceOutcome,
+    pub duration: Option<Duration>,
+    pub events_recorded: u8,
 }
 
 /// Telemetry record stored in the ring buffer.
@@ -189,6 +201,31 @@ impl TelemetryRecorder {
         );
         id
     }
+
+    /// Records the completion of a strap sequence run.
+    pub fn record_sequence_completion(
+        &mut self,
+        kind: StrapSequenceKind,
+        outcome: SequenceOutcome,
+        started_at: Option<Instant>,
+        timestamp: Instant,
+        events_recorded: usize,
+    ) -> EventId {
+        let duration = started_at.map(|start| timestamp.saturating_duration_since(start));
+        let payload = TelemetryPayload::Sequence(SequenceTelemetry {
+            outcome,
+            duration,
+            events_recorded: truncate_count(events_recorded),
+        });
+
+        let id = self.record(
+            TelemetryEventKind::SequenceComplete(kind),
+            payload,
+            timestamp,
+        );
+        log_sequence_completion(kind, outcome, timestamp, duration, events_recorded);
+        id
+    }
 }
 
 impl Default for TelemetryRecorder {
@@ -287,6 +324,14 @@ const fn truncate_depth(depth: usize) -> u8 {
     }
 }
 
+const fn truncate_count(count: usize) -> u8 {
+    if count > u8::MAX as usize {
+        u8::MAX
+    } else {
+        count as u8
+    }
+}
+
 const fn command_stage_label(stage: CommandStage) -> &'static str {
     match stage {
         CommandStage::Pending => "pending",
@@ -300,6 +345,13 @@ const fn sequence_kind_label(kind: StrapSequenceKind) -> &'static str {
         StrapSequenceKind::RecoveryEntry => "RecoveryEntry",
         StrapSequenceKind::RecoveryImmediate => "RecoveryImmediate",
         StrapSequenceKind::FaultRecovery => "FaultRecovery",
+    }
+}
+
+const fn sequence_outcome_label(outcome: SequenceOutcome) -> &'static str {
+    match outcome {
+        SequenceOutcome::Completed => "Completed",
+        SequenceOutcome::SkippedCooldown => "SkippedCooldown",
     }
 }
 
@@ -352,10 +404,75 @@ fn emit_command_log(
     }
 }
 
+fn log_sequence_completion(
+    kind: StrapSequenceKind,
+    outcome: SequenceOutcome,
+    timestamp: Instant,
+    duration: Option<Duration>,
+    events_recorded: usize,
+) {
+    let kind_label = sequence_kind_label(kind);
+    let outcome_label = sequence_outcome_label(outcome);
+    let timestamp_us = timestamp.as_micros();
+    let duration_us = duration.map(|value| value.as_micros());
+    let events = u32::from(truncate_count(events_recorded));
+
+    emit_sequence_log(kind_label, outcome_label, timestamp_us, duration_us, events);
+}
+
+#[cfg(target_os = "none")]
+fn emit_sequence_log(
+    kind: &'static str,
+    outcome: &'static str,
+    timestamp_us: u64,
+    duration_us: Option<u64>,
+    events_recorded: u32,
+) {
+    if let Some(duration) = duration_us {
+        defmt::info!(
+            "telemetry:sequence complete kind={} outcome={} t={}us duration={}us events={}",
+            kind,
+            outcome,
+            timestamp_us,
+            duration,
+            events_recorded
+        );
+    } else {
+        defmt::info!(
+            "telemetry:sequence complete kind={} outcome={} t={}us events={}",
+            kind,
+            outcome,
+            timestamp_us,
+            events_recorded
+        );
+    }
+}
+
+#[cfg(not(target_os = "none"))]
+fn emit_sequence_log(
+    kind: &'static str,
+    outcome: &'static str,
+    timestamp_us: u64,
+    duration_us: Option<u64>,
+    events_recorded: u32,
+) {
+    if let Some(duration) = duration_us {
+        println!(
+            "telemetry:sequence complete kind={} outcome={} t={}us duration={}us events={}",
+            kind, outcome, timestamp_us, duration, events_recorded
+        );
+    } else {
+        println!(
+            "telemetry:sequence complete kind={} outcome={} t={}us events={}",
+            kind, outcome, timestamp_us, events_recorded
+        );
+    }
+}
+
 #[cfg(all(test, not(target_os = "none")))]
 mod tests {
     use super::*;
-    use crate::straps::{StrapAction, StrapLineId, StrapSequenceKind};
+    use crate::straps::{SequenceOutcome, StrapAction, StrapLineId, StrapSequenceKind};
 
     fn micros(value: u64) -> Instant {
         Instant::from_micros(value)
@@ -465,6 +582,62 @@ mod tests {
                 assert_eq!(wait.as_micros(), 410);
             }
             _ => panic!("expected command payload"),
+        }
+    }
+
+    #[test]
+    fn records_sequence_completion_with_duration() {
+        let mut recorder = TelemetryRecorder::new();
+        let started_at = micros(100);
+        let completed_at = micros(1_300);
+
+        let id = recorder.record_sequence_completion(
+            StrapSequenceKind::NormalReboot,
+            SequenceOutcome::Completed,
+            Some(started_at),
+            completed_at,
+            3,
+        );
+        assert_eq!(id, 0);
+
+        let record = recorder.latest().copied().unwrap();
+        assert_eq!(
+            record.event,
+            TelemetryEventKind::SequenceComplete(StrapSequenceKind::NormalReboot)
+        );
+
+        match record.details {
+            TelemetryPayload::Sequence(details) => {
+                assert_eq!(details.outcome, SequenceOutcome::Completed);
+                let duration = details.duration.expect("missing sequence duration");
+                assert_eq!(duration.as_micros(), 1_200);
+                assert_eq!(details.events_recorded, 3);
+            }
+            _ => panic!("expected sequence payload"),
+        }
+    }
+
+    #[test]
+    fn records_sequence_completion_without_start_timestamp() {
+        let mut recorder = TelemetryRecorder::new();
+        let completed_at = micros(2_000);
+
+        recorder.record_sequence_completion(
+            StrapSequenceKind::NormalReboot,
+            SequenceOutcome::SkippedCooldown,
+            None,
+            completed_at,
+            usize::MAX,
+        );
+
+        let record = recorder.latest().copied().unwrap();
+        match record.details {
+            TelemetryPayload::Sequence(details) => {
+                assert_eq!(details.outcome, SequenceOutcome::SkippedCooldown);
+                assert!(details.duration.is_none());
+                assert_eq!(details.events_recorded, u8::MAX);
+            }
+            _ => panic!("expected sequence payload"),
         }
     }
 }

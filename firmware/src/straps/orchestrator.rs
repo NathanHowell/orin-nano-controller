@@ -175,6 +175,22 @@ mod tests {
                 SequenceState::Complete(SequenceOutcome::Completed)
             ));
         }
+
+        assert_eq!(telemetry.len(), 5);
+        let final_record = telemetry.latest().copied().unwrap();
+        assert_eq!(
+            final_record.event,
+            TelemetryEventKind::SequenceComplete(StrapSequenceKind::NormalReboot)
+        );
+        match final_record.details {
+            TelemetryPayload::Sequence(summary) => {
+                assert_eq!(summary.outcome, SequenceOutcome::Completed);
+                let duration = summary.duration.expect("missing duration");
+                assert_eq!(duration.as_millis(), 2_220);
+                assert_eq!(summary.events_recorded, 4);
+            }
+            _ => panic!("expected sequence payload"),
+        }
     }
 }
 
@@ -672,9 +688,29 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
         self.last_power_sample = None;
     }
 
-    /// Marks the active run as completed.
-    pub fn complete_run(&mut self, outcome: SequenceOutcome) -> Result<(), TransitionError> {
+    /// Marks the active run as completed and records a telemetry event.
+    pub fn complete_run(
+        &mut self,
+        telemetry: &mut TelemetryRecorder,
+        outcome: SequenceOutcome,
+        timestamp: Instant,
+    ) -> Result<(), TransitionError> {
+        let (kind, started_at, requested_at, events_recorded) = match self.active_run.as_ref() {
+            Some(run) => (
+                run.command.kind,
+                run.sequence_started_at,
+                run.command.requested_at,
+                run.emitted_events.len(),
+            ),
+            None => return Err(TransitionError::NoActiveRun),
+        };
+
+        let start = started_at.or(Some(requested_at));
+        let event_id =
+            telemetry.record_sequence_completion(kind, outcome, start, timestamp, events_recorded);
+
         if let Some(run) = self.active_run.as_mut() {
+            let _ = run.track_event(event_id);
             run.state = SequenceState::Complete(outcome);
             Ok(())
         } else {
@@ -823,7 +859,7 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
                         run.current_step_index = None;
                         run.state = SequenceState::Cooldown;
                     }
-                    self.begin_cooldown(template.cooldown, now)
+                    self.begin_cooldown(template.cooldown, telemetry, now)
                 } else {
                     if let Some(run) = self.active_run.as_mut() {
                         run.current_step_index = Some(0);
@@ -844,7 +880,7 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
                         if let Some(run) = self.active_run.as_mut() {
                             run.state = SequenceState::Cooldown;
                         }
-                        return self.begin_cooldown(template.cooldown, now);
+                        return self.begin_cooldown(template.cooldown, telemetry, now);
                     }
                 };
 
@@ -854,7 +890,7 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
                         if let Some(run) = self.active_run.as_mut() {
                             run.state = SequenceState::Cooldown;
                         }
-                        return self.begin_cooldown(template.cooldown, now);
+                        return self.begin_cooldown(template.cooldown, telemetry, now);
                     }
                 };
 
@@ -876,7 +912,7 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
                     StepCompletion::OnEvent(_) => false,
                 }
             }
-            SequenceState::Cooldown => self.progress_cooldown(template.cooldown, now),
+            SequenceState::Cooldown => self.progress_cooldown(template.cooldown, telemetry, now),
             SequenceState::Complete(_) | SequenceState::Error(_) => false,
         }
     }
@@ -893,6 +929,9 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
 
         run.waiting_on_bridge = matches!(step.completion, StepCompletion::OnBridgeActivity);
         run.step_started_at = Some(now);
+        if run.sequence_started_at.is_none() {
+            run.sequence_started_at = Some(now);
+        }
         run.step_deadline = match step.completion {
             StepCompletion::AfterDuration => Some(now + step.hold_for),
             _ => None,
@@ -933,11 +972,16 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
             let step = &template.phases[next_index];
             self.start_step(step, telemetry, now)
         } else {
-            self.begin_cooldown(template.cooldown, now)
+            self.begin_cooldown(template.cooldown, telemetry, now)
         }
     }
 
-    fn begin_cooldown(&mut self, cooldown: Duration, now: Instant) -> bool {
+    fn begin_cooldown(
+        &mut self,
+        cooldown: Duration,
+        telemetry: &mut TelemetryRecorder,
+        now: Instant,
+    ) -> bool {
         if let Some(run) = self.active_run.as_mut() {
             if cooldown.as_ticks() == 0 {
                 run.cooldown_deadline = None;
@@ -947,16 +991,21 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
         }
 
         if cooldown.as_ticks() == 0 {
-            let _ = self.complete_run(SequenceOutcome::SkippedCooldown);
+            let _ = self.complete_run(telemetry, SequenceOutcome::SkippedCooldown, now);
             true
         } else {
             false
         }
     }
 
-    fn progress_cooldown(&mut self, cooldown: Duration, now: Instant) -> bool {
+    fn progress_cooldown(
+        &mut self,
+        cooldown: Duration,
+        telemetry: &mut TelemetryRecorder,
+        now: Instant,
+    ) -> bool {
         if cooldown.as_ticks() == 0 {
-            let _ = self.complete_run(SequenceOutcome::SkippedCooldown);
+            let _ = self.complete_run(telemetry, SequenceOutcome::SkippedCooldown, now);
             return true;
         }
 
@@ -970,7 +1019,7 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
                 if let Some(run) = self.active_run.as_mut() {
                     run.cooldown_deadline = None;
                 }
-                let _ = self.complete_run(SequenceOutcome::Completed);
+                let _ = self.complete_run(telemetry, SequenceOutcome::Completed, now);
                 true
             }
             Some(_) => false,
