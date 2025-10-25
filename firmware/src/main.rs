@@ -11,6 +11,7 @@ mod bridge;
 mod repl;
 mod straps;
 mod telemetry;
+mod usb;
 
 #[cfg(target_os = "none")]
 #[embassy_executor::main]
