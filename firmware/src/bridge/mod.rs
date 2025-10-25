@@ -68,6 +68,13 @@ pub type BridgeActivitySender<'a> =
 pub type BridgeActivityReceiver<'a> =
     Receiver<'a, BridgeMutex, BridgeActivityEvent, ACTIVITY_QUEUE_DEPTH>;
 
+/// Snapshot emitted when the USB control link disconnects.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BridgeDisconnectNotice {
+    pub timestamp: Instant,
+    pub recovery_release_pending: bool,
+}
+
 /// Bundles the bounded USB↔UART channels so tasks can share a single instance.
 pub struct BridgeQueue {
     pub usb_to_ttl: BridgeChannel,
@@ -134,6 +141,7 @@ pub struct BridgeActivityMonitor<'a> {
     pending_recovery_release: bool,
     last_rx: Option<Instant>,
     last_tx: Option<Instant>,
+    link_attached: bool,
 }
 
 impl<'a> BridgeActivityMonitor<'a> {
@@ -144,6 +152,7 @@ impl<'a> BridgeActivityMonitor<'a> {
             pending_recovery_release: false,
             last_rx: None,
             last_tx: None,
+            link_attached: false,
         }
     }
 
@@ -175,10 +184,83 @@ impl<'a> BridgeActivityMonitor<'a> {
             .inspect(|event| self.track(event))
     }
 
+    /// Marks the USB control link as attached and logs the transition.
+    pub fn notify_usb_connect(&mut self, timestamp: Instant) {
+        if self.link_attached {
+            return;
+        }
+
+        self.link_attached = true;
+        log_usb_connect(timestamp);
+    }
+
+    /// Marks the USB control link as detached, returning the resulting notice.
+    pub fn notify_usb_disconnect(&mut self, timestamp: Instant) -> Option<BridgeDisconnectNotice> {
+        if !self.link_attached {
+            return None;
+        }
+
+        self.link_attached = false;
+        let pending = self.pending_recovery_release;
+        self.pending_recovery_release = false;
+
+        log_usb_disconnect(pending, timestamp);
+        Some(BridgeDisconnectNotice {
+            timestamp,
+            recovery_release_pending: pending,
+        })
+    }
+
     fn track(&mut self, event: &BridgeActivityEvent) {
         match event.kind {
             BridgeActivityKind::UsbToJetson => self.last_tx = Some(event.timestamp),
             BridgeActivityKind::JetsonToUsb => self.last_rx = Some(event.timestamp),
         }
+    }
+}
+
+#[cfg(target_os = "none")]
+fn log_usb_connect(timestamp: Instant) {
+    defmt::info!(
+        "bridge: USB control link attached t={}us",
+        timestamp.as_micros()
+    );
+}
+
+#[cfg(not(target_os = "none"))]
+fn log_usb_connect(timestamp: Instant) {
+    println!(
+        "bridge: USB control link attached t={}us",
+        timestamp.as_micros()
+    );
+}
+
+#[cfg(target_os = "none")]
+fn log_usb_disconnect(pending_recovery: bool, timestamp: Instant) {
+    if pending_recovery {
+        defmt::warn!(
+            "bridge: USB control link lost while awaiting recovery console activity t={}us",
+            timestamp.as_micros()
+        );
+    } else {
+        defmt::warn!(
+            "bridge: USB control link lost t={}us",
+            timestamp.as_micros()
+        );
+    }
+}
+
+#[cfg(not(target_os = "none"))]
+fn log_usb_disconnect(pending_recovery: bool, timestamp: Instant) {
+    if pending_recovery {
+        println!(
+            "bridge: USB control link lost while awaiting recovery console activity t={}us",
+            timestamp.as_micros()
+        );
+    } else {
+        println!(
+            "bridge: USB control link lost t={}us",
+            timestamp.as_micros()
+        );
     }
 }

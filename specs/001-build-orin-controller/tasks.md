@@ -49,7 +49,7 @@ description: "Task list template for feature implementation"
 - [x] T010 [P] Create dual-CDC composite USB builder skeleton exposing REPL and bridge interfaces in `firmware/src/usb/mod.rs`.
 - [x] T011 Wire Embassy executor init, peripheral setup, and task spawning for straps, bridge, USB, and REPL in `firmware/src/main.rs`.
 - [x] T032 [P] Implement brown-out detection and strap retry handling in `firmware/src/straps/orchestrator.rs`, using ADC or voltage sense to pause sequences until VDD_3V3 stabilizes and logging the retry count via `defmt`.
-- [ ] T033 [P] Handle USB cable disconnect safe-state transitions by surfacing an error over the REPL, releasing straps safely, and logging the condition across `firmware/src/bridge/mod.rs` and `firmware/src/straps/orchestrator.rs`.
+- [x] T033 [P] Handle USB cable disconnect safe-state transitions by surfacing an error over the REPL, releasing straps safely, and logging the condition across `firmware/src/bridge/mod.rs` and `firmware/src/straps/orchestrator.rs`.
 
 ---
 

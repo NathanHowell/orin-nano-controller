@@ -7,13 +7,15 @@
 
 #![allow(dead_code)]
 
+use crate::bridge::BridgeDisconnectNotice;
 use crate::telemetry::{TelemetryPayload, TelemetryRecorder};
 use embassy_time::{Duration, Instant, Timer};
 use heapless::{Deque, Vec};
 
 use super::{
-    COMMAND_QUEUE_DEPTH, CommandReceiver, EventId, SequenceCommand, SequenceError, SequenceOutcome,
-    SequenceRun, SequenceState, SequenceTemplate, StrapSequenceKind, TelemetryEventKind,
+    COMMAND_QUEUE_DEPTH, CommandReceiver, EventId, STRAP_LINES, SequenceCommand, SequenceError,
+    SequenceOutcome, SequenceRun, SequenceState, SequenceTemplate, StrapAction, StrapSequenceKind,
+    TelemetryEventKind,
 };
 
 /// Total number of sequence templates expected for this controller.
@@ -75,6 +77,64 @@ impl TemplateRegistry {
     pub fn iter(&self) -> core::slice::Iter<'_, SequenceTemplate> {
         self.templates.iter()
     }
+}
+
+fn release_all_straps_for_run(
+    run: &mut SequenceRun,
+    telemetry: &mut TelemetryRecorder,
+    timestamp: Instant,
+) {
+    for strap in STRAP_LINES.iter() {
+        let event_id =
+            telemetry.record_strap_transition(strap.id, StrapAction::ReleaseHigh, timestamp);
+        let _ = run.track_event(event_id);
+    }
+}
+
+#[cfg(target_os = "none")]
+fn log_control_link_attached(timestamp: Instant) {
+    defmt::info!(
+        "orchestrator: USB control link attached t={}us",
+        timestamp.as_micros()
+    );
+}
+
+#[cfg(not(target_os = "none"))]
+fn log_control_link_attached(timestamp: Instant) {
+    println!(
+        "orchestrator: USB control link attached t={}us",
+        timestamp.as_micros()
+    );
+}
+
+#[cfg(target_os = "none")]
+fn log_control_link_lost(had_active_run: bool, recovery_pending: bool, timestamp: Instant) {
+    let tag = match (had_active_run, recovery_pending) {
+        (true, true) => "awaiting recovery console activity",
+        (true, false) => "aborting active strap run",
+        (false, _) => "controller idle",
+    };
+
+    defmt::warn!(
+        "orchestrator: USB control link lost ({}) t={}us",
+        tag,
+        timestamp.as_micros()
+    );
+}
+
+#[cfg(not(target_os = "none"))]
+fn log_control_link_lost(had_active_run: bool, recovery_pending: bool, timestamp: Instant) {
+    let tag = match (had_active_run, recovery_pending) {
+        (true, true) => "awaiting recovery console activity",
+        (true, false) => "aborting active strap run",
+        (false, _) => "controller idle",
+    };
+
+    println!(
+        "orchestrator: USB control link lost ({}) t={}us",
+        tag,
+        timestamp.as_micros()
+    );
 }
 
 /// Errors that may occur while managing the template registry.
@@ -243,6 +303,7 @@ impl OrchestratorState {
 pub enum CommandRejectionReason {
     Busy,
     MissingTemplate,
+    ControlLinkLost,
 }
 
 /// Command rejection detail for the last failed enqueue attempt.
@@ -265,6 +326,11 @@ impl CommandRejection {
     /// Builds a rejection caused by a missing template.
     pub fn missing_template(command: SequenceCommand) -> Self {
         Self::new(command, CommandRejectionReason::MissingTemplate)
+    }
+
+    /// Builds a rejection caused by a missing USB control link.
+    pub fn control_link_lost(command: SequenceCommand) -> Self {
+        Self::new(command, CommandRejectionReason::ControlLinkLost)
     }
 
     /// Returns the rejection reason.
@@ -300,6 +366,7 @@ pub struct StrapOrchestrator<'a, M: PowerMonitor = NoopPowerMonitor> {
     power_monitor: M,
     last_power_sample: Option<PowerSample>,
     recovering_power: bool,
+    control_link_attached: bool,
 }
 
 impl<'a> StrapOrchestrator<'a> {
@@ -330,6 +397,7 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
             power_monitor,
             last_power_sample: None,
             recovering_power: false,
+            control_link_attached: true,
         }
     }
 
@@ -348,6 +416,7 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
             power_monitor,
             last_power_sample: None,
             recovering_power: false,
+            control_link_attached: true,
         }
     }
 
@@ -403,10 +472,69 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
         self.last_rejection.take()
     }
 
+    /// Returns `true` when the USB control link is currently attached.
+    pub fn control_link_attached(&self) -> bool {
+        self.control_link_attached
+    }
+
+    /// Marks the USB control link as attached, clearing any prior fault state.
+    pub fn notify_control_link_attached(&mut self) {
+        if self.control_link_attached {
+            return;
+        }
+
+        self.control_link_attached = true;
+        log_control_link_attached(Instant::now());
+    }
+
+    /// Handles a USB control link disconnect by aborting active work and logging telemetry.
+    pub fn notify_control_link_lost(
+        &mut self,
+        telemetry: &mut TelemetryRecorder,
+        notice: Option<BridgeDisconnectNotice>,
+    ) {
+        let (timestamp, recovery_pending) = notice
+            .map(|notice| (notice.timestamp, notice.recovery_release_pending))
+            .unwrap_or_else(|| (Instant::now(), false));
+
+        if !self.control_link_attached {
+            return;
+        }
+
+        self.control_link_attached = false;
+
+        let had_active_run = self.active_run.is_some();
+        log_control_link_lost(had_active_run, recovery_pending, timestamp);
+
+        let disconnect_event = telemetry.record(
+            TelemetryEventKind::UsbDisconnect,
+            TelemetryPayload::None,
+            timestamp,
+        );
+
+        if let Some(run) = self.active_run.as_mut() {
+            let _ = run.track_event(disconnect_event);
+            release_all_straps_for_run(run, telemetry, timestamp);
+            run.state = SequenceState::Error(SequenceError::ControlLinkLost);
+        }
+
+        while let Some(queued) = self.pending_commands.pop_front() {
+            self.last_rejection = Some(CommandRejection::control_link_lost(queued.command));
+        }
+
+        if had_active_run {
+            self.finish_run();
+        }
+    }
+
     /// Begins executing a new sequence command.
     pub fn begin_run(&mut self, command: SequenceCommand) -> Result<(), CommandRejection> {
         if self.active_run.is_some() {
             return Err(CommandRejection::busy(command));
+        }
+
+        if !self.control_link_attached {
+            return Err(CommandRejection::control_link_lost(command));
         }
 
         if !self.templates.contains(command.kind) {
@@ -619,6 +747,11 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
 
     fn collect_pending_commands(&mut self, telemetry: &mut TelemetryRecorder) {
         while let Ok(command) = self.command_rx.try_receive() {
+            if !self.control_link_attached {
+                self.last_rejection = Some(CommandRejection::control_link_lost(command));
+                continue;
+            }
+
             if self.pending_commands.is_full() {
                 self.last_rejection = Some(CommandRejection::busy(command));
                 continue;

@@ -214,6 +214,7 @@ pub enum TelemetryEventKind {
     CommandPending(StrapSequenceKind),
     CommandStarted(StrapSequenceKind),
     SequenceComplete(StrapSequenceKind),
+    UsbDisconnect,
     Custom(u16),
 }
 
@@ -322,6 +323,7 @@ pub enum SequenceError {
     BrownOutDetected,
     BridgeTimeout,
     RetryLimitExceeded,
+    ControlLinkLost,
     UnexpectedState,
     TelemetryBacklog,
 }
