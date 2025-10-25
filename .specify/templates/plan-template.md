@@ -36,6 +36,7 @@
 - Define the hardware-in-the-loop or bench validation you will run, including required instruments/fixtures (Principle III).
 - Specify the observability hook (Defmt/RTT, SWO, diagnostic GPIO, etc.) that will expose new behavior and how it will be captured (Principle V).
 - Affirm the solution remains `#![no_std]` Rust on STM32G0 with Embassy; flag any dependency/runtime changes for review (Principle IV).
+- Describe how `controller-core`, `firmware`, and `emulator` crates share the work: list affected APIs, confirm cross-target compilation, and outline how the host REPL will exercise the new logic (Principle IV).
 
 ## Project Structure
 

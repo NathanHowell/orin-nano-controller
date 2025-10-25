@@ -8,7 +8,7 @@ description: "Task list template for feature implementation"
 **Input**: Design documents from `/specs/[###-feature-name]/`
 **Prerequisites**: plan.md (required), spec.md (required for user stories), research.md, data-model.md, contracts/
 
-**Validation**: Include hardware-in-the-loop (HIL) / bench evidence capture tasks for any strap, power, or USB change. Firmware tests are OPTIONAL unless specified in the feature spec.
+**Validation**: Include hardware-in-the-loop (HIL) / bench evidence capture tasks for any strap, power, or USB change. Host-side validation through the `emulator` crate MUST mirror REPL commands covered on hardware. Firmware tests are OPTIONAL unless specified in the feature spec.
 
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
@@ -21,6 +21,8 @@ description: "Task list template for feature implementation"
 ## Path Conventions
 
 - Firmware: `firmware/src/`, `firmware/Cargo.toml`, `firmware/.cargo/`
+- Shared logic/API: `controller-core/src/`, `controller-core/Cargo.toml`
+- Host REPL: `emulator/src/`, `emulator/Cargo.toml`
 - Bench/HIL scripts & docs: `.specify/`, `pcb/orin-nano-controller/BASELINE.md`, feature docs under `specs/`
 - Logic analyzer captures, photos, and evidence: store under `specs/[###-feature-name]/evidence/`
 - Update additional directories as required by the implementation plan
@@ -65,6 +67,8 @@ description: "Task list template for feature implementation"
 - [ ] T011 [P] Implement or adjust the base Embassy task scheduler for strap control in `firmware/src/main.rs`.
 - [ ] T012 Integrate or update observability hooks (Defmt/RTT, SWO, diagnostic GPIO) and document usage in `specs/[###-feature-name]/spec.md`.
 - [ ] T013 Ensure recovery procedures are documented and validated (e.g., SWD reflash checklist).
+- [ ] T014 [P] Update `controller-core/src/` APIs so shared business logic matches the new behavior and compile checks pass for both host and firmware targets.
+- [ ] T015 [P] Wire the host-side REPL in `emulator/src/` to call the updated `controller-core` APIs and document how to run parity tests.
 
 **Checkpoint**: Foundation ready – user stories can now be pursued independently.
 

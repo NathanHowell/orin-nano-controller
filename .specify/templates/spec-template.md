@@ -106,11 +106,13 @@
 - **FR-003**: Operators MUST be able to [trigger boot/recovery mode] via [button/command/interface].
 - **FR-004**: Firmware MUST [publish diagnostics or telemetry] through [Defmt/RTT/SWO/diagnostic GPIO].
 - **FR-005**: System MUST [protect Jetson/board] by [specific safeguard].
+- **FR-006**: Shared logic MUST reside in `controller-core`, compile for both firmware and host targets, and expose APIs consumed by `firmware` and `emulator` crates.
+- **FR-007**: The `emulator` crate MUST surface the REPL commands that exercise the new behavior and record how parity with hardware will be validated.
 
 *Example of marking unclear requirements:*
 
-- **FR-006**: Firmware MUST manage strap timing with [NEEDS CLARIFICATION: exact delay window not specified]
-- **FR-007**: System MUST expose diagnostics through [NEEDS CLARIFICATION: instrumentation method undecided]
+- **FR-008**: Firmware MUST manage strap timing with [NEEDS CLARIFICATION: exact delay window not specified]
+- **FR-009**: System MUST expose diagnostics through [NEEDS CLARIFICATION: instrumentation method undecided]
 
 ### Boot & Strap Sequence Requirements *(mandatory when behavior changes)*
 

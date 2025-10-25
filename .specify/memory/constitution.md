@@ -1,14 +1,10 @@
 <!--
 Sync Impact Report
-Version: 0.0.0 → 1.0.0
+Version: 1.0.0 → 1.1.0
 Modified Principles:
-- Template Principle 1 Placeholder → I. Unified Pin Contracts
-- Template Principle 2 Placeholder → II. Deterministic Boot Stewardship
-- Template Principle 3 Placeholder → III. Hardware-in-the-Loop Assurance
-- Template Principle 4 Placeholder → IV. Lean Firmware Architecture
-- Template Principle 5 Placeholder → V. Built-in Observability & Recovery
+- IV. Lean Firmware Architecture → IV. Composable Runtime Architecture
 Added Sections:
-- None (template sections activated with concrete guidance)
+- None
 Removed Sections:
 - None
 Templates requiring updates:
@@ -41,11 +37,12 @@ Rationale: Deterministic orchestration protects the Jetson carrier interface and
 - MUST version any scripts, fixtures, or harness firmware required to reproduce validation inside this repository under `.specify/` or `firmware/`.
 Rationale: Physical feedback is the only trustworthy confirmation that board and firmware changes work together safely.
 
-### IV. Lean Firmware Architecture
-- MUST keep firmware crates `#![no_std]`, embed on the Embassy executor, and review memory/performance impact before adding dependencies.
-- MUST encapsulate MCU pin configuration, power domains, and strap mappings in dedicated modules so orchestration logic can remain testable and board-aware.
-- MUST prefer feature flags or module-level configuration over new crates when accommodating board revisions, preserving a single firmware artifact per hardware revision.
-Rationale: Lean, well-structured firmware keeps resource usage predictable and reduces divergence across board spins.
+### IV. Composable Runtime Architecture
+- MUST keep the `firmware` crate `#![no_std]`, embed on the Embassy executor, and review memory/performance impact before adding dependencies.
+- MUST implement strap orchestration, business rules, and the REPL grammar in a shared `controller-core` crate that compiles for both `thumbv6m-none-eabi` and host targets without MCU peripherals.
+- MUST treat the `firmware` crate as the hardware binding layer that satisfies `controller-core` traits for pins, timers, storage, and telemetry while keeping board specifics isolated.
+- MUST provide an `emulator` crate that links against `controller-core`, offers a host-side REPL, and exercises the same command surface used on hardware so behavior stays in lock-step.
+Rationale: A clear core-versus-binding split enables shared testing, host tooling parity, and safe reuse of validated control logic across targets.
 
 ### V. Built-in Observability & Recovery
 - MUST provide at least one recovery path (SWD flashing, physical strap override, or equivalent) documented for every new behavior that could wedge the Jetson.
@@ -57,6 +54,7 @@ Rationale: Embedded bring-up relies on clear introspection and safe fallbacks wh
 
 - Firmware targets the STM32G0B1 and builds with `cargo` for `thumbv6m-none-eabi`; releases must remain `no_std` and panic with `panic-halt`.
 - Embassy crates (`embassy-executor`, `embassy-stm32`, `embassy-time`) and their enabled features are considered locked; proposals to change them require governance approval.
+- Workspace MUST include the crates `controller-core` (shared logic/API), `firmware` (board bindings), and `emulator` (host REPL). Changes that drift their public surfaces out of sync MUST be reviewed together.
 - PCB design lives in KiCad; revisions MUST update `pcb/orin-nano-controller/*.kicad_*` files alongside `pcb/orin-nano-controller/README.md` and note the revision in feature docs.
 - USB-C interface follows the BOM in `pcb/orin-nano-controller/README.md`; capacitance and strap resistor values listed there are normative and deviations require explicit sign-off.
 - Mechanical interfaces (Samtec J14, SWD header) must preserve current footprint orientation unless a migration plan is documented.
@@ -65,6 +63,7 @@ Rationale: Embedded bring-up relies on clear introspection and safe fallbacks wh
 
 - Specs MUST include a `Hardware Interface Contracts` section mapping impacted pins, voltage domains, and timing budgets, citing `pcb/orin-nano-controller/README.md` line items.
 - Implementation plans MUST answer the Constitution Check gate list, including the boot state machine diagram, validation strategy, and observability hooks.
+- Plans MUST state how `controller-core`, `firmware`, and `emulator` are affected, confirming APIs stay aligned and host tooling remains functional before coding begins.
 - Task breakdowns MUST include hardware-in-the-loop validation work, evidence capture, and documentation updates before marking stories complete.
 - Before starting a new implementation phase or marking any task complete, contributors MUST run `just check` at the repository root (which invokes rustfmt, Clippy, and tests) and resolve all failures.
 - Code reviews MUST verify that firmware modules isolate board-specific details and that instrumentation/recovery updates are documented.
@@ -78,4 +77,4 @@ Rationale: Embedded bring-up relies on clear introspection and safe fallbacks wh
 - Every amendment PR MUST update the Sync Impact Report, increment the version, and set `Last Amended` to the merge date.
 - Compliance reviews occur quarterly at minimum; findings and remediation tasks are tracked in `.specify/` artifacts or issue trackers linked from feature docs.
 
-**Version**: 1.0.0 | **Ratified**: 2025-10-23 | **Last Amended**: 2025-10-23
+**Version**: 1.1.0 | **Ratified**: 2025-10-23 | **Last Amended**: 2025-10-25
