@@ -14,8 +14,8 @@ use heapless::{Deque, Vec};
 
 use super::{
     COMMAND_QUEUE_DEPTH, CommandReceiver, EventId, STRAP_LINES, SequenceCommand, SequenceError,
-    SequenceOutcome, SequenceRun, SequenceState, SequenceTemplate, StrapAction, StrapSequenceKind,
-    TelemetryEventKind,
+    SequenceOutcome, SequenceRun, SequenceState, SequenceTemplate, StepCompletion, StrapAction,
+    StrapSequenceKind, StrapStep, TelemetryEventKind,
 };
 
 /// Total number of sequence templates expected for this controller.
@@ -76,6 +76,105 @@ impl TemplateRegistry {
     /// Returns an iterator over registered templates.
     pub fn iter(&self) -> core::slice::Iter<'_, SequenceTemplate> {
         self.templates.iter()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::straps::sequences::normal_reboot_template;
+    use crate::straps::{CommandQueue, CommandSource, StrapLineId};
+    use embassy_time::{Duration, Instant};
+
+    #[test]
+    fn normal_reboot_sequence_advances_through_template() {
+        let queue = CommandQueue::new();
+        let mut orchestrator = StrapOrchestrator::new(queue.receiver());
+
+        orchestrator
+            .templates_mut()
+            .register(normal_reboot_template())
+            .expect("template registry should accept normal reboot");
+
+        let command = SequenceCommand::new(
+            StrapSequenceKind::NormalReboot,
+            Instant::from_micros(0),
+            CommandSource::UsbHost,
+        );
+        orchestrator.begin_run(command).expect("run should start");
+
+        let mut telemetry = TelemetryRecorder::new();
+        let mut now = Instant::from_micros(0);
+
+        orchestrator.drive_active_run(&mut telemetry, now);
+        assert_eq!(orchestrator.state(), OrchestratorState::Running);
+        {
+            let run = orchestrator.active_run().expect("active run missing");
+            assert_eq!(run.current_step_index(), Some(0));
+            assert_eq!(run.step_deadline(), Some(now + Duration::from_millis(200)));
+        }
+        assert_eq!(telemetry.len(), 1);
+        assert_eq!(
+            telemetry.latest().unwrap().event,
+            TelemetryEventKind::StrapAsserted(StrapLineId::Power)
+        );
+
+        now = now + Duration::from_millis(200);
+        orchestrator.drive_active_run(&mut telemetry, now);
+        {
+            let run = orchestrator.active_run().expect("active run missing");
+            assert_eq!(run.current_step_index(), Some(1));
+            assert_eq!(
+                run.step_deadline(),
+                Some(now + Duration::from_millis(1_000))
+            );
+        }
+        assert_eq!(telemetry.len(), 2);
+        assert_eq!(
+            telemetry.latest().unwrap().event,
+            TelemetryEventKind::StrapReleased(StrapLineId::Power)
+        );
+
+        now = now + Duration::from_millis(1_000);
+        orchestrator.drive_active_run(&mut telemetry, now);
+        {
+            let run = orchestrator.active_run().expect("active run missing");
+            assert_eq!(run.current_step_index(), Some(2));
+            assert_eq!(run.step_deadline(), Some(now + Duration::from_millis(20)));
+        }
+        assert_eq!(
+            telemetry.latest().unwrap().event,
+            TelemetryEventKind::StrapAsserted(StrapLineId::Reset)
+        );
+
+        now = now + Duration::from_millis(20);
+        orchestrator.drive_active_run(&mut telemetry, now);
+        {
+            let run = orchestrator.active_run().expect("active run missing");
+            assert_eq!(run.state, SequenceState::Cooldown);
+            assert!(run.current_step_index().is_none());
+        }
+        assert_eq!(
+            telemetry.latest().unwrap().event,
+            TelemetryEventKind::StrapReleased(StrapLineId::Reset)
+        );
+        assert_eq!(telemetry.len(), 4);
+
+        let cooldown_deadline = orchestrator
+            .active_run()
+            .expect("active run missing")
+            .cooldown_deadline()
+            .expect("cooldown deadline unset");
+
+        now = cooldown_deadline;
+        orchestrator.drive_active_run(&mut telemetry, now);
+        {
+            let run = orchestrator.active_run().expect("active run missing");
+            assert!(matches!(
+                run.state,
+                SequenceState::Complete(SequenceOutcome::Completed)
+            ));
+        }
     }
 }
 
@@ -633,8 +732,221 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
             PowerStatus::Unknown => {}
         }
 
+        let now = Instant::now();
+        self.drive_active_run(telemetry, now);
+
         // Yield to allow other tasks to interact with the active run while power remains stable.
         Timer::after(self.idle_delay()).await;
+    }
+
+    fn drive_active_run(&mut self, telemetry: &mut TelemetryRecorder, now: Instant) {
+        loop {
+            let kind = match self.active_run.as_ref() {
+                Some(run) => run.command.kind,
+                None => return,
+            };
+
+            let template = match self.templates.get(kind).cloned() {
+                Some(template) => template,
+                None => {
+                    if self.fail_run(SequenceError::UnexpectedState).is_ok() {
+                        continue;
+                    } else {
+                        return;
+                    }
+                }
+            };
+
+            let advanced = self.advance_run_state(&template, telemetry, now);
+
+            if !advanced {
+                break;
+            }
+        }
+    }
+
+    fn advance_run_state(
+        &mut self,
+        template: &SequenceTemplate,
+        telemetry: &mut TelemetryRecorder,
+        now: Instant,
+    ) -> bool {
+        let state = match self.active_run.as_ref() {
+            Some(run) => run.state,
+            None => return false,
+        };
+
+        match state {
+            SequenceState::Idle => {
+                if let Some(run) = self.active_run.as_mut() {
+                    run.state = SequenceState::Arming;
+                }
+                true
+            }
+            SequenceState::Arming => {
+                if template.phases.is_empty() {
+                    if let Some(run) = self.active_run.as_mut() {
+                        run.current_step_index = None;
+                        run.state = SequenceState::Cooldown;
+                    }
+                    self.begin_cooldown(template.cooldown, now)
+                } else {
+                    if let Some(run) = self.active_run.as_mut() {
+                        run.current_step_index = Some(0);
+                        run.state = SequenceState::Executing;
+                    }
+                    let step = &template.phases[0];
+                    self.start_step(step, telemetry, now)
+                }
+            }
+            SequenceState::Executing => {
+                let current_index = match self
+                    .active_run
+                    .as_ref()
+                    .and_then(|run| run.current_step_index)
+                {
+                    Some(index) => index,
+                    None => {
+                        if let Some(run) = self.active_run.as_mut() {
+                            run.state = SequenceState::Cooldown;
+                        }
+                        return self.begin_cooldown(template.cooldown, now);
+                    }
+                };
+
+                let step = match template.phases.get(current_index) {
+                    Some(step) => step,
+                    None => {
+                        if let Some(run) = self.active_run.as_mut() {
+                            run.state = SequenceState::Cooldown;
+                        }
+                        return self.begin_cooldown(template.cooldown, now);
+                    }
+                };
+
+                match step.completion {
+                    StepCompletion::AfterDuration => {
+                        let ready = match self.active_run.as_ref().and_then(|run| run.step_deadline)
+                        {
+                            Some(deadline) => now >= deadline,
+                            None => true,
+                        };
+
+                        if ready {
+                            self.finish_step(template, telemetry, now)
+                        } else {
+                            false
+                        }
+                    }
+                    StepCompletion::OnBridgeActivity => false,
+                    StepCompletion::OnEvent(_) => false,
+                }
+            }
+            SequenceState::Cooldown => self.progress_cooldown(template.cooldown, now),
+            SequenceState::Complete(_) | SequenceState::Error(_) => false,
+        }
+    }
+
+    fn start_step(
+        &mut self,
+        step: &StrapStep,
+        telemetry: &mut TelemetryRecorder,
+        now: Instant,
+    ) -> bool {
+        let Some(run) = self.active_run.as_mut() else {
+            return false;
+        };
+
+        run.waiting_on_bridge = matches!(step.completion, StepCompletion::OnBridgeActivity);
+        run.step_started_at = Some(now);
+        run.step_deadline = match step.completion {
+            StepCompletion::AfterDuration => Some(now + step.hold_for),
+            _ => None,
+        };
+
+        let event_id = telemetry.record_strap_transition(step.line, step.action, now);
+        let _ = run.track_event(event_id);
+        true
+    }
+
+    fn finish_step(
+        &mut self,
+        template: &SequenceTemplate,
+        telemetry: &mut TelemetryRecorder,
+        now: Instant,
+    ) -> bool {
+        let (next_index, more_steps) = match self.active_run.as_ref() {
+            Some(run) => {
+                let current = run.current_step_index.unwrap_or(usize::MAX);
+                let next = current.saturating_add(1);
+                (next, next < template.phases.len())
+            }
+            None => return false,
+        };
+
+        if let Some(run) = self.active_run.as_mut() {
+            run.step_started_at = None;
+            run.step_deadline = None;
+            if more_steps {
+                run.current_step_index = Some(next_index);
+            } else {
+                run.current_step_index = None;
+                run.state = SequenceState::Cooldown;
+            }
+        }
+
+        if more_steps {
+            let step = &template.phases[next_index];
+            self.start_step(step, telemetry, now)
+        } else {
+            self.begin_cooldown(template.cooldown, now)
+        }
+    }
+
+    fn begin_cooldown(&mut self, cooldown: Duration, now: Instant) -> bool {
+        if let Some(run) = self.active_run.as_mut() {
+            if cooldown.as_ticks() == 0 {
+                run.cooldown_deadline = None;
+            } else {
+                run.cooldown_deadline = Some(now + cooldown);
+            }
+        }
+
+        if cooldown.as_ticks() == 0 {
+            let _ = self.complete_run(SequenceOutcome::SkippedCooldown);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn progress_cooldown(&mut self, cooldown: Duration, now: Instant) -> bool {
+        if cooldown.as_ticks() == 0 {
+            let _ = self.complete_run(SequenceOutcome::SkippedCooldown);
+            return true;
+        }
+
+        let deadline = self
+            .active_run
+            .as_ref()
+            .and_then(|run| run.cooldown_deadline);
+
+        match deadline {
+            Some(deadline) if now >= deadline => {
+                if let Some(run) = self.active_run.as_mut() {
+                    run.cooldown_deadline = None;
+                }
+                let _ = self.complete_run(SequenceOutcome::Completed);
+                true
+            }
+            Some(_) => false,
+            None => {
+                if let Some(run) = self.active_run.as_mut() {
+                    run.cooldown_deadline = Some(now + cooldown);
+                }
+                false
+            }
+        }
     }
 
     async fn handle_brown_out(

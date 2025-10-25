@@ -343,6 +343,10 @@ pub struct SequenceRun {
     pub emitted_events: Vec<EventId, MAX_EMITTED_EVENTS>,
     pub retry_count: u8,
     pub waiting_on_bridge: bool,
+    pub(super) current_step_index: Option<usize>,
+    pub(super) step_started_at: Option<Instant>,
+    pub(super) step_deadline: Option<Instant>,
+    pub(super) cooldown_deadline: Option<Instant>,
 }
 
 impl SequenceRun {
@@ -354,6 +358,10 @@ impl SequenceRun {
             emitted_events: Vec::new(),
             retry_count: 0,
             waiting_on_bridge: false,
+            current_step_index: None,
+            step_started_at: None,
+            step_deadline: None,
+            cooldown_deadline: None,
         }
     }
 
@@ -363,11 +371,30 @@ impl SequenceRun {
         self.emitted_events.clear();
         self.waiting_on_bridge = false;
         self.state = SequenceState::Arming;
+        self.current_step_index = None;
+        self.step_started_at = None;
+        self.step_deadline = None;
+        self.cooldown_deadline = None;
     }
 
     /// Records a telemetry event identifier associated with this run.
     pub fn track_event(&mut self, event_id: EventId) -> bool {
         self.emitted_events.push(event_id).is_ok()
+    }
+
+    /// Returns the index of the currently executing step, if any.
+    pub fn current_step_index(&self) -> Option<usize> {
+        self.current_step_index
+    }
+
+    /// Returns the deadline for the in-flight step, if any.
+    pub fn step_deadline(&self) -> Option<Instant> {
+        self.step_deadline
+    }
+
+    /// Returns the deadline for the active cooldown interval, if any.
+    pub fn cooldown_deadline(&self) -> Option<Instant> {
+        self.cooldown_deadline
     }
 }
 
