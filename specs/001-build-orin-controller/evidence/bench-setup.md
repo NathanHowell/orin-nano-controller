@@ -1,13 +1,13 @@
 # Bench Instrumentation Checklist
 
 - **Recorded by**: Nathan Howell
-- **Last verified**: 2025-10-23
+- **Last verified**: 2025-10-25
 - **Bench location**: Firmware lab bench 1
 
 ## Core Instruments
 
 - [x] Logic analyzer — Saleae Logic Pro 8  
-  - Channels 0–7 wired to STM32 `PA0..PA7`; channel 0 reserved for USB D+ trigger  
+  - Channels 0–3 wired to straps (`RESET*`, `REC*`, `PWR*`, `APO`); channels 4–5 monitor `VBUS` and `3V3`; channel 0 doubles as the USB D+ trigger  
   - Firmware v2.4.13; sampling rate set to 100 MS/s for USB and strap transitions  
   - Laptop capture directory: `/Volumes/logic/sessions/orin-controller/`
 
@@ -31,3 +31,4 @@
 
 - Keep logic analyzer ground clip on shared star point behind DUT to avoid ground loops.
 - Replace oscilloscope probe tip covers after use to preserve compensation settings.
+- Quick strap sanity check: assert RESET* via firmware CLI and confirm channels 0/1 toggle (`RESET*` low, `REC*` steady high) before recording sequences.
