@@ -41,6 +41,8 @@ description: "Task list template for feature implementation"
 
 **Purpose**: Establish the shared controller-core crate, workspace wiring, and crate scaffolding required by every user story.
 
+IMPORTANT: please refer to existing `firmware` code for reusable logic that can be migrated into `controller-core`.
+
 - [X] T005 Create the `controller-core` crate skeleton with `#![no_std]` defaults in `controller-core/Cargo.toml` and `controller-core/src/lib.rs`.
 - [ ] T006 [P] Implement strap data structures (`StrapLine`, `SequenceTemplate`, `StrapStep`) per the data model in `controller-core/src/sequences/mod.rs`.
 - [ ] T007 [P] Define the command queue and `SequenceRun` state machine traits in `controller-core/src/orchestrator/mod.rs`.
@@ -58,6 +60,8 @@ description: "Task list template for feature implementation"
 **Goal**: Deliver a shared `NormalReboot` sequence accessible from both firmware and emulator REPLs with telemetry proof of strap timing.
 
 **Independent Test**: Issue `reboot now` via firmware and emulator REPLs, confirm Jetson boots to the Linux prompt, and verify telemetry timestamps in captured evidence.
+
+IMPORTANT: please refer to existing `firmware` code for reusable logic that can be migrated into `controller-core`.
 
 ### Tasks
 
@@ -80,6 +84,8 @@ description: "Task list template for feature implementation"
 
 **Independent Test**: Invoke `recovery now` and `recovery enter|exit`, confirm Jetson enumerates in recovery on USB within 10 seconds, and verify parity logs between hardware and emulator runs.
 
+IMPORTANT: please refer to existing `firmware` code for reusable logic that can be migrated into `controller-core`.
+
 ### Tasks
 
 - [ ] T024 [US2] Implement `RecoveryEntry` and `RecoveryImmediate` templates with pre/post REC windows in `controller-core/src/sequences/recovery.rs`.
@@ -98,6 +104,8 @@ description: "Task list template for feature implementation"
 **Goal**: Deliver an APO-driven fault recovery workflow with bounded retries and documented field-service procedures across firmware and emulator.
 
 **Independent Test**: Execute `fault recover` with retries configured, confirm APO assertion plus reboot retries on hardware, and verify emulator parity logs capture matching telemetry.
+
+IMPORTANT: please refer to existing `firmware` code for reusable logic that can be migrated into `controller-core`.
 
 ### Tasks
 
