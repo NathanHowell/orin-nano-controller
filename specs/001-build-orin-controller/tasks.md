@@ -67,7 +67,7 @@ IMPORTANT: please refer to existing `firmware` code for reusable logic that can 
 
 - [X] T014 [US1] Implement the `NormalReboot` sequence template with timing budgets in `controller-core/src/sequences/normal.rs`.
 - [X] T015 [P] [US1] Wire `NormalReboot` into the orchestrator queue and enforce cooldown logic in `controller-core/src/orchestrator/mod.rs`.
-- [ ] T016 [P] [US1] Implement `reboot now|delay` parsing and command dispatch in `controller-core/src/repl/commands.rs`.
+- [X] T016 [P] [US1] Implement `reboot now|delay` parsing and command dispatch in `controller-core/src/repl/commands.rs`.
 - [ ] T017 [P] [US1] Add host-side unit tests covering `NormalReboot` durations in `controller-core/tests/normal_reboot.rs`.
 - [ ] T018 [P] [US1] Bind controller-core strap operations to STM32 pins with defmt telemetry in `firmware/src/straps/orchestrator.rs`.
 - [ ] T019 [P] [US1] Expose a reboot command in the emulator session and log parity transcripts to `emulator/src/session.rs` and `specs/001-build-orin-controller/evidence/emulator-reboot.log`.

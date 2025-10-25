@@ -26,6 +26,8 @@ pub enum CommandSource {
 pub struct CommandFlags {
     /// Placeholder for future overrides (e.g., forcing recovery paths).
     pub force_recovery: bool,
+    /// Optional delay before the orchestrator may start executing the command.
+    pub start_after: Option<Duration>,
 }
 
 /// Strap sequence request waiting to be processed by the orchestrator.
@@ -560,6 +562,17 @@ where
         requested_at: P::Instant,
         source: CommandSource,
     ) -> Result<(), ScheduleError<P::Error, P::Instant>> {
+        self.enqueue_with_flags(kind, requested_at, source, CommandFlags::default())
+    }
+
+    /// Attempts to enqueue a sequence command with explicit flags.
+    pub fn enqueue_with_flags(
+        &mut self,
+        kind: StrapSequenceKind,
+        requested_at: P::Instant,
+        source: CommandSource,
+        flags: CommandFlags,
+    ) -> Result<(), ScheduleError<P::Error, P::Instant>> {
         let template = self
             .templates
             .get(kind)
@@ -574,7 +587,7 @@ where
             });
         }
 
-        let command = SequenceCommand::new(kind, requested_at, source);
+        let command = SequenceCommand::with_flags(kind, requested_at, source, flags);
         self.producer
             .try_enqueue(command)
             .map_err(ScheduleError::from)?;

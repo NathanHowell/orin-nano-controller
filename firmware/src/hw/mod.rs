@@ -8,6 +8,8 @@
 
 #![allow(dead_code)]
 
+use core::convert::TryFrom;
+
 use controller_core::{
     orchestrator::{
         CommandDequeueError as CoreCommandDequeueError,
@@ -19,7 +21,7 @@ use controller_core::{
     sequences::StrapSequenceKind as CoreStrapSequenceKind,
 };
 use embassy_sync::channel::{TryReceiveError, TrySendError};
-use embassy_time::Instant;
+use embassy_time::{Duration as EmbassyDuration, Instant};
 
 use crate::straps;
 
@@ -179,14 +181,28 @@ fn into_core_source(source: straps::CommandSource) -> CoreCommandSource {
 fn into_firmware_flags(flags: CoreCommandFlags) -> straps::CommandFlags {
     straps::CommandFlags {
         force_recovery: flags.force_recovery,
-        // Delay semantics live solely in the firmware layer today; carry the
-        // value once the shared core grows a compatible field.
-        start_after: None,
+        start_after: core_duration_to_embassy(flags.start_after),
     }
 }
 
 fn into_core_flags(flags: straps::CommandFlags) -> CoreCommandFlags {
     CoreCommandFlags {
         force_recovery: flags.force_recovery,
+        start_after: embassy_duration_to_core(flags.start_after),
     }
+}
+
+fn core_duration_to_embassy(duration: Option<core::time::Duration>) -> Option<EmbassyDuration> {
+    duration.and_then(|value| {
+        let micros = value.as_micros();
+        let Ok(micros) = u64::try_from(micros) else {
+            return None;
+        };
+
+        EmbassyDuration::try_from_micros(micros)
+    })
+}
+
+fn embassy_duration_to_core(duration: Option<EmbassyDuration>) -> Option<core::time::Duration> {
+    duration.map(|value| core::time::Duration::from_micros(value.as_micros()))
 }
