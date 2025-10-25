@@ -7,6 +7,8 @@
 
 use core::time::Duration;
 
+use crate::telemetry::TelemetryEventKind;
+
 /// Longest sequence we expect to encode (FaultRecovery) plus one step of headroom.
 pub const MAX_SEQUENCE_STEPS: usize = 8;
 
@@ -63,6 +65,17 @@ impl StrapId {
             StrapId::Rec => 1,
             StrapId::Pwr => 2,
             StrapId::Apo => 3,
+        }
+    }
+
+    /// Attempts to construct a [`StrapId`] from a raw index.
+    pub const fn from_index(index: usize) -> Option<Self> {
+        match index {
+            0 => Some(StrapId::Reset),
+            1 => Some(StrapId::Rec),
+            2 => Some(StrapId::Pwr),
+            3 => Some(StrapId::Apo),
+            _ => None,
         }
     }
 }
@@ -225,22 +238,6 @@ impl TimingConstraintSet {
     /// Converts the maximum hold constraint to a [`Duration`], if present.
     pub fn max_hold_duration(&self) -> Option<Duration> {
         self.max_hold.map(Into::into)
-    }
-}
-
-/// Identifier for telemetry events without depending on the concrete enum yet.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct TelemetryEventKind(pub u16);
-
-impl TelemetryEventKind {
-    pub const fn new(code: u16) -> Self {
-        Self(code)
-    }
-}
-
-impl From<u16> for TelemetryEventKind {
-    fn from(value: u16) -> Self {
-        Self(value)
     }
 }
 
