@@ -247,6 +247,25 @@ pub enum TemplateRegistryError {
 struct QueuedCommand {
     command: SequenceCommand,
     pending_event: Option<EventId>,
+    not_before: Option<Instant>,
+}
+
+fn compute_not_before(command: &SequenceCommand) -> Option<Instant> {
+    command
+        .flags
+        .start_after
+        .map(|delay| command.requested_at + delay)
+}
+
+fn remaining_delay(queued: &QueuedCommand) -> Option<Duration> {
+    queued.not_before.and_then(|deadline| {
+        let now = Instant::now();
+        if now >= deadline {
+            None
+        } else {
+            Some(deadline.saturating_duration_since(now))
+        }
+    })
 }
 
 const DEFAULT_BROWN_OUT_RETRIES: u8 = 1;
@@ -693,6 +712,15 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
             }
 
             if let Some(queued) = self.pending_commands.pop_front() {
+                if let Some(delay) = remaining_delay(&queued) {
+                    debug_assert!(
+                        self.pending_commands.push_front(queued).is_ok(),
+                        "pending command queue reinsertion failed"
+                    );
+                    Timer::after(delay).await;
+                    continue;
+                }
+
                 match self.start_queued_command(queued, telemetry) {
                     Ok(()) => self.last_rejection = None,
                     Err(rejection) => self.last_rejection = Some(rejection),
@@ -701,10 +729,16 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
             }
 
             let command = self.command_rx.receive().await;
+            let not_before = compute_not_before(&command);
             let queued = QueuedCommand {
                 command,
                 pending_event: None,
+                not_before,
             };
+
+            if let Some(delay) = remaining_delay(&queued) {
+                Timer::after(delay).await;
+            }
 
             match self.start_queued_command(queued, telemetry) {
                 Ok(()) => self.last_rejection = None,
@@ -1079,6 +1113,7 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
             );
 
             let queued = QueuedCommand {
+                not_before: compute_not_before(&command),
                 command,
                 pending_event: Some(event_id),
             };
@@ -1096,6 +1131,7 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
         telemetry: &mut TelemetryRecorder,
     ) -> Result<(), CommandRejection> {
         let pending_event = queued.pending_event;
+        let not_before = queued.not_before;
         let command = queued.command;
 
         match self.begin_run(command) {
@@ -1121,6 +1157,7 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
                     let queued = QueuedCommand {
                         command: rejection.command().clone(),
                         pending_event,
+                        not_before,
                     };
 
                     // If reinsertion fails the queue is full; drop the request after flagging busy.

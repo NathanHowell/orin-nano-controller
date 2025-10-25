@@ -273,6 +273,8 @@ pub enum CommandSource {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
 pub struct CommandFlags {
     pub force_recovery: bool,
+    /// Optional delay before the orchestrator may start executing the command.
+    pub start_after: Option<Duration>,
 }
 
 /// Command describing a request to execute a strap sequence.

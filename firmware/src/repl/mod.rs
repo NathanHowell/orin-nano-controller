@@ -8,6 +8,11 @@
 
 #![allow(dead_code)]
 
+pub mod commands;
+
+#[allow(unused_imports)]
+pub use self::commands::CommandExecutor;
+
 use core::mem;
 use core::str;
 
@@ -62,6 +67,8 @@ pub enum DispatchError {
     Busy,
     /// The requested command is not supported in the current context.
     Unsupported,
+    /// Arguments failed validation.
+    InvalidArgument,
     /// Internal error surfaced by the command executor.
     Internal,
 }
