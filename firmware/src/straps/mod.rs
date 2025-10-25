@@ -7,6 +7,7 @@
 #![allow(dead_code)]
 
 pub mod orchestrator;
+pub mod sequences;
 
 use core::fmt;
 

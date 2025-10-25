@@ -61,7 +61,7 @@ description: "Task list template for feature implementation"
 
 ### Tasks
 
-- [ ] T012 [US1] Implement `NormalReboot` sequence template (timings, cooldown) in `firmware/src/straps/sequences.rs`.
+- [x] T012 [US1] Implement `NormalReboot` sequence template (timings, cooldown) in `firmware/src/straps/sequences.rs`.
 - [ ] T013 [P] [US1] Integrate queue-driven execution for `NormalReboot` in `firmware/src/straps/orchestrator.rs`.
 - [ ] T014 [P] [US1] Implement `reboot` command (with optional `delay`) that enqueues `NormalReboot` in `firmware/src/repl/commands.rs`, confirming it is reachable only via the local CDC0 REPL.
 - [ ] T015 [P] [US1] Emit timestamped strap telemetry and success events for normal reboot in `firmware/src/telemetry/mod.rs`.
