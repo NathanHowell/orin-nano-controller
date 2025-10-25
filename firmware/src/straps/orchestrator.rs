@@ -562,20 +562,19 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
                         first_stable = Some(sample);
                     }
 
-                    if let Some(stable_anchor) = first_stable {
-                        if sample
+                    if let Some(stable_anchor) = first_stable
+                        && sample
                             .timestamp
                             .saturating_duration_since(stable_anchor.timestamp)
                             >= holdoff
-                        {
-                            telemetry.record(
-                                TelemetryEventKind::PowerStable,
-                                TelemetryPayload::None,
-                                sample.timestamp,
-                            );
-                            log_power_recovered(&sample, attempt, holdoff);
-                            return;
-                        }
+                    {
+                        telemetry.record(
+                            TelemetryEventKind::PowerStable,
+                            TelemetryPayload::None,
+                            sample.timestamp,
+                        );
+                        log_power_recovered(&sample, attempt, holdoff);
+                        return;
                     }
                 }
                 PowerStatus::BrownOut(sample) => {
@@ -590,16 +589,16 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
                         first_stable = Some(sample);
                     }
 
-                    if let Some(stable_anchor) = first_stable {
-                        if now.saturating_duration_since(stable_anchor.timestamp) >= holdoff {
-                            telemetry.record(
-                                TelemetryEventKind::PowerStable,
-                                TelemetryPayload::None,
-                                now,
-                            );
-                            log_power_recovered(&sample, attempt, holdoff);
-                            return;
-                        }
+                    if let Some(stable_anchor) = first_stable
+                        && now.saturating_duration_since(stable_anchor.timestamp) >= holdoff
+                    {
+                        telemetry.record(
+                            TelemetryEventKind::PowerStable,
+                            TelemetryPayload::None,
+                            now,
+                        );
+                        log_power_recovered(&sample, attempt, holdoff);
+                        return;
                     }
                 }
             }
