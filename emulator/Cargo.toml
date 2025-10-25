@@ -8,3 +8,4 @@ name = "controller-emulator"
 path = "src/main.rs"
 
 [dependencies]
+controller-core = { path = "../controller-core", features = ["alloc"] }
