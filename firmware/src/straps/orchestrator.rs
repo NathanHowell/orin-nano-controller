@@ -7,13 +7,13 @@
 
 #![allow(dead_code)]
 
-use crate::telemetry::TelemetryRecorder;
+use crate::telemetry::{TelemetryPayload, TelemetryRecorder};
 use embassy_time::{Duration, Instant, Timer};
 use heapless::{Deque, Vec};
 
 use super::{
     COMMAND_QUEUE_DEPTH, CommandReceiver, EventId, SequenceCommand, SequenceError, SequenceOutcome,
-    SequenceRun, SequenceState, SequenceTemplate, StrapSequenceKind,
+    SequenceRun, SequenceState, SequenceTemplate, StrapSequenceKind, TelemetryEventKind,
 };
 
 /// Total number of sequence templates expected for this controller.
@@ -89,6 +89,130 @@ struct QueuedCommand {
     command: SequenceCommand,
     pending_event: Option<EventId>,
 }
+
+const DEFAULT_BROWN_OUT_RETRIES: u8 = 1;
+const DEFAULT_POWER_SAMPLE_PERIOD_MS: u64 = 5;
+const DEFAULT_POWER_STABLE_HOLDOFF_MS: u64 = 25;
+const MIN_PROCESS_SLEEP_MS: u64 = 1;
+
+/// Snapshot describing a single VDD_3V3 observation.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct PowerSample {
+    pub timestamp: Instant,
+    pub millivolts: Option<u16>,
+}
+
+impl PowerSample {
+    /// Creates a new [`PowerSample`] with the provided timestamp and reading.
+    pub const fn new(timestamp: Instant, millivolts: Option<u16>) -> Self {
+        Self {
+            timestamp,
+            millivolts,
+        }
+    }
+}
+
+/// Classification for the most recent power rail observation.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum PowerStatus {
+    Stable(PowerSample),
+    BrownOut(PowerSample),
+    Unknown,
+}
+
+/// Interface provided by a VDD_3V3 voltage monitor.
+pub trait PowerMonitor {
+    /// Returns the most recent power rail classification.
+    fn poll(&mut self) -> PowerStatus;
+
+    /// Interval to wait between consecutive polls while the rail recovers.
+    fn sample_interval(&self) -> Duration {
+        Duration::from_millis(DEFAULT_POWER_SAMPLE_PERIOD_MS)
+    }
+
+    /// Duration that VDD_3V3 must remain above the stability threshold.
+    fn stable_holdoff(&self) -> Duration {
+        Duration::from_millis(DEFAULT_POWER_STABLE_HOLDOFF_MS)
+    }
+}
+
+/// Placeholder monitor used on host builds while hardware integration is pending.
+#[derive(Copy, Clone, Debug, Default)]
+pub struct NoopPowerMonitor;
+
+impl NoopPowerMonitor {
+    /// Creates a new no-op monitor.
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl PowerMonitor for NoopPowerMonitor {
+    fn poll(&mut self) -> PowerStatus {
+        PowerStatus::Unknown
+    }
+}
+
+#[cfg(target_os = "none")]
+fn log_brown_out_detected(sample: &PowerSample, retries_used: u8, retry_budget: u8) {
+    match sample.millivolts {
+        Some(mv) => defmt::warn!(
+            "VDD_3V3 brown-out detected (retry {} of {}, {=u16} mV)",
+            retries_used + 1,
+            retry_budget,
+            mv
+        ),
+        None => defmt::warn!(
+            "VDD_3V3 brown-out detected (retry {} of {}, reading unavailable)",
+            retries_used + 1,
+            retry_budget
+        ),
+    }
+}
+
+#[cfg(not(target_os = "none"))]
+fn log_brown_out_detected(_: &PowerSample, _: u8, _: u8) {}
+
+#[cfg(target_os = "none")]
+fn log_retry_started(attempt: u8, budget: u8) {
+    defmt::info!(
+        "retrying strap sequence after brown-out (attempt {} of {})",
+        attempt,
+        budget
+    );
+}
+
+#[cfg(not(target_os = "none"))]
+fn log_retry_started(_: u8, _: u8) {}
+
+#[cfg(target_os = "none")]
+fn log_retry_exhausted(budget: u8) {
+    defmt::error!("brown-out retry budget exhausted after {} attempts", budget);
+}
+
+#[cfg(not(target_os = "none"))]
+fn log_retry_exhausted(_: u8) {}
+
+#[cfg(target_os = "none")]
+fn log_power_recovered(sample: &PowerSample, attempt: u8, holdoff: Duration) {
+    let elapsed = holdoff.as_millis();
+    match sample.millivolts {
+        Some(mv) => defmt::info!(
+            "power stable after brown-out (attempt {}, {=u16} mV, holdoff {} ms)",
+            attempt,
+            mv,
+            elapsed
+        ),
+        None => defmt::info!(
+            "power stable after brown-out (attempt {}, holdoff {} ms, reading unavailable)",
+            attempt,
+            elapsed
+        ),
+    }
+}
+
+#[cfg(not(target_os = "none"))]
+fn log_power_recovered(_: &PowerSample, _: u8, _: Duration) {}
 
 /// High-level orchestrator states mirroring the data-model FSM.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -167,34 +291,63 @@ pub enum TransitionError {
 }
 
 /// Coordinates strap sequencing based on queued commands.
-pub struct StrapOrchestrator<'a> {
+pub struct StrapOrchestrator<'a, M: PowerMonitor = NoopPowerMonitor> {
     command_rx: CommandReceiver<'a>,
     templates: TemplateRegistry,
     active_run: Option<SequenceRun>,
     last_rejection: Option<CommandRejection>,
     pending_commands: Deque<QueuedCommand, COMMAND_QUEUE_DEPTH>,
+    power_monitor: M,
+    last_power_sample: Option<PowerSample>,
+    recovering_power: bool,
 }
 
 impl<'a> StrapOrchestrator<'a> {
     /// Creates a new orchestrator with an empty template registry.
     pub fn new(command_rx: CommandReceiver<'a>) -> Self {
+        StrapOrchestrator::with_power_monitor(command_rx, NoopPowerMonitor::new())
+    }
+
+    /// Creates a new orchestrator seeded with templates.
+    pub fn with_templates(command_rx: CommandReceiver<'a>, templates: TemplateRegistry) -> Self {
+        StrapOrchestrator::with_power_monitor_and_templates(
+            command_rx,
+            NoopPowerMonitor::new(),
+            templates,
+        )
+    }
+}
+
+impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
+    /// Creates a new orchestrator with a supplied power monitor.
+    pub fn with_power_monitor(command_rx: CommandReceiver<'a>, power_monitor: M) -> Self {
         Self {
             command_rx,
             templates: TemplateRegistry::new(),
             active_run: None,
             last_rejection: None,
             pending_commands: Deque::new(),
+            power_monitor,
+            last_power_sample: None,
+            recovering_power: false,
         }
     }
 
-    /// Creates a new orchestrator seeded with templates.
-    pub fn with_templates(command_rx: CommandReceiver<'a>, templates: TemplateRegistry) -> Self {
+    /// Creates a new orchestrator with templates and a supplied power monitor.
+    pub fn with_power_monitor_and_templates(
+        command_rx: CommandReceiver<'a>,
+        power_monitor: M,
+        templates: TemplateRegistry,
+    ) -> Self {
         Self {
             command_rx,
             templates,
             active_run: None,
             last_rejection: None,
             pending_commands: Deque::new(),
+            power_monitor,
+            last_power_sample: None,
+            recovering_power: false,
         }
     }
 
@@ -261,12 +414,16 @@ impl<'a> StrapOrchestrator<'a> {
         }
 
         self.active_run = Some(SequenceRun::new(command));
+        self.recovering_power = false;
+        self.last_power_sample = None;
         Ok(())
     }
 
     /// Finishes the active run and returns to idle.
     pub fn finish_run(&mut self) {
         self.active_run = None;
+        self.recovering_power = false;
+        self.last_power_sample = None;
     }
 
     /// Marks the active run as completed.
@@ -304,7 +461,7 @@ impl<'a> StrapOrchestrator<'a> {
         loop {
             if self.active_run.is_some() {
                 self.collect_pending_commands(telemetry);
-                self.process_active_run().await;
+                self.process_active_run(telemetry).await;
                 continue;
             }
 
@@ -329,15 +486,136 @@ impl<'a> StrapOrchestrator<'a> {
         }
     }
 
-    async fn process_active_run(&mut self) {
+    async fn process_active_run(&mut self, telemetry: &mut TelemetryRecorder) {
         if self.state().is_terminal() {
             self.finish_run();
             return;
         }
 
-        // Yield to allow other tasks to interact with the active run, e.g.,
-        // advancing strap steps or performing safety checks.
-        Timer::after(Duration::from_millis(1)).await;
+        match self.power_monitor.poll() {
+            PowerStatus::BrownOut(sample) => {
+                self.last_power_sample = Some(sample);
+                if self.handle_brown_out(sample, telemetry).await {
+                    return;
+                }
+            }
+            PowerStatus::Stable(sample) => {
+                self.last_power_sample = Some(sample);
+            }
+            PowerStatus::Unknown => {}
+        }
+
+        // Yield to allow other tasks to interact with the active run while power remains stable.
+        Timer::after(self.idle_delay()).await;
+    }
+
+    async fn handle_brown_out(
+        &mut self,
+        sample: PowerSample,
+        telemetry: &mut TelemetryRecorder,
+    ) -> bool {
+        let (retry_budget, retries_used, attempt);
+
+        {
+            let Some(run) = self.active_run.as_mut() else {
+                return false;
+            };
+
+            let Some(template) = self.templates.get(run.command.kind) else {
+                let _ = self.fail_run(SequenceError::UnexpectedState);
+                return false;
+            };
+
+            retry_budget = template.max_retries.unwrap_or(DEFAULT_BROWN_OUT_RETRIES);
+            retries_used = run.retry_count;
+
+            log_brown_out_detected(&sample, retries_used, retry_budget);
+
+            if retries_used >= retry_budget {
+                log_retry_exhausted(retry_budget);
+                let _ = self.fail_run(SequenceError::RetryLimitExceeded);
+                return false;
+            }
+
+            run.begin_retry();
+            attempt = run.retry_count;
+            log_retry_started(attempt, retry_budget);
+        }
+
+        self.recovering_power = true;
+        self.await_power_recovery(telemetry, attempt).await;
+        self.recovering_power = false;
+        true
+    }
+
+    async fn await_power_recovery(&mut self, telemetry: &mut TelemetryRecorder, attempt: u8) {
+        let holdoff = self.power_monitor.stable_holdoff();
+        let mut first_stable: Option<PowerSample> = None;
+
+        loop {
+            self.collect_pending_commands(telemetry);
+
+            match self.power_monitor.poll() {
+                PowerStatus::Stable(sample) => {
+                    self.last_power_sample = Some(sample);
+                    if first_stable.is_none() {
+                        first_stable = Some(sample);
+                    }
+
+                    if let Some(stable_anchor) = first_stable {
+                        if sample
+                            .timestamp
+                            .saturating_duration_since(stable_anchor.timestamp)
+                            >= holdoff
+                        {
+                            telemetry.record(
+                                TelemetryEventKind::PowerStable,
+                                TelemetryPayload::None,
+                                sample.timestamp,
+                            );
+                            log_power_recovered(&sample, attempt, holdoff);
+                            return;
+                        }
+                    }
+                }
+                PowerStatus::BrownOut(sample) => {
+                    self.last_power_sample = Some(sample);
+                    first_stable = None;
+                }
+                PowerStatus::Unknown => {
+                    let now = Instant::now();
+                    let sample = PowerSample::new(now, None);
+                    self.last_power_sample = Some(sample);
+                    if first_stable.is_none() {
+                        first_stable = Some(sample);
+                    }
+
+                    if let Some(stable_anchor) = first_stable {
+                        if now.saturating_duration_since(stable_anchor.timestamp) >= holdoff {
+                            telemetry.record(
+                                TelemetryEventKind::PowerStable,
+                                TelemetryPayload::None,
+                                now,
+                            );
+                            log_power_recovered(&sample, attempt, holdoff);
+                            return;
+                        }
+                    }
+                }
+            }
+
+            Timer::after(self.idle_delay()).await;
+        }
+    }
+
+    fn idle_delay(&self) -> Duration {
+        let candidate = self.power_monitor.sample_interval();
+        let minimum = Duration::from_millis(MIN_PROCESS_SLEEP_MS);
+        if candidate < minimum {
+            minimum
+        } else {
+            candidate
+        }
     }
 
     fn collect_pending_commands(&mut self, telemetry: &mut TelemetryRecorder) {
