@@ -136,7 +136,7 @@ A field technician must hard-stop a wedged Jetson and restore normal operation u
 - **SC-001**: 95% of normal reboot commands complete with Jetson boot banner observed within 60 seconds.  
 - **SC-002**: Recovery mode entry succeeds in 10/10 bench trials, with host detecting the Jetson in recovery within 8 seconds.  
 - **SC-003**: Emulator parity runs generate telemetry sequences identical to hardware within ±5 ms timing tolerance and log parity results under `specs/001-build-orin-controller/evidence/`.  
-- **SC-004**: Telemetry evidence (logic trace plus live log output) is emitted for 100% of executed sequences and visible to the host during the active session.
+- **SC-004**: Telemetry evidence (logic trace plus live `defmt` log output) is emitted for 100% of executed sequences and visible to the host during the active session.
 
 ## Assumptions & Dependencies
 

@@ -16,7 +16,7 @@ digraph OrinControllerBootFSM {
     CollisionReject [label = "Reject overlapping request\nlog BUSY + timestamp", shape = rectangle, style = "rounded,dashed"];
     UsbSafe [label = "USB disconnect safe state\nrelease straps + notify host"];
     BrownoutHold [label = "Brown-out hold\npause until VDD_3V3 ≥ 2.97 V"];
-    TelemetryFlush [label = "Flush telemetry & evidence\n(defmt + ring buffer)"];
+    TelemetryFlush [label = "Stream telemetry & evidence\n(defmt log output)"];
     SequenceError [label = "Surface error\nrelease straps & log", shape = hexagon];
 
     Dequeue -> BrownoutHold [label = "VDD_3V3 < 2.97 V"];

@@ -34,7 +34,7 @@
 
 ### `SequenceRun`
 - **Fields**: `command: SequenceCommand`, `state: SequenceState`, `emitted_events: Vec<EventId>`, `retry_count: u8`, `waiting_on_bridge: bool`.
-- **Relationships**: Managed by `StrapOrchestrator`; produces `TelemetryRecord` entries consumed by `EvidenceLogger`.
+- **Relationships**: Managed by `StrapOrchestrator`; emits telemetry events over `defmt` for each transition.
 - **Validation rules**: `retry_count` ≤ template `max_retries`; transitions follow deterministic FSM (Idle → Arming → Executing → Cooldown → Complete/Error); `waiting_on_bridge` flag only set for `RecoveryImmediate` runs until console traffic is detected.
 
 ### `CommandQueue`
@@ -42,20 +42,10 @@
 - **Relationships**: Producers = `ReplSession`; consumer = `StrapOrchestrator`.
 - **Validation rules**: Capacity fixed at 4 to honor "fixed size" requirement and prevent unbounded host queueing; `try_send` errors surface to host as `BUSY`.
 
-### `TelemetryRecord`
-- **Fields**: `timestamp: Instant`, `event: TelemetryEventKind`, `details: TelemetryPayload`.
-- **Relationships**: Stored in ring buffer within `EvidenceLogger`; published over USB diagnostics stream.
-- **Validation rules**: Guarantee chronological ordering and include strap timing metrics; rely on monotonic clock from `embassy_time`.
-
 ### `JetsonPowerMonitor`
 - **Fields**: `adc: embassy_stm32::adc::Adc<'static, ADC1>`, `channel: PcLedChannel`, `sample_interval: Milliseconds`, `threshold: u16`.
-- **Relationships**: Samples the PC_LED_MON divider to infer Jetson front-panel LED state; publishes events consumed by `EvidenceLogger`.
+- **Relationships**: Samples the PC_LED_MON divider to infer Jetson front-panel LED state; reports status via `defmt` telemetry events.
 - **Validation rules**: Apply simple hysteresis around the configured threshold; debounce reporting (≥5 ms) to avoid chatter when the LED PWM updates.
-
-### `EvidenceLogger`
-- **Fields**: `ring: heapless::HistoryBuffer<TelemetryRecord, 128>`, `persist_path: Option<&'static str>` for benchmark exports, `usb_sink: DiagnosticsSink`.
-- **Relationships**: Subscribed to `StrapOrchestrator`, `JetsonPowerMonitor`, and `BridgeActivityMonitor` events; exposes USB log stream.
-- **Validation rules**: Never block orchestrator; drop-oldest on overflow with warning event.
 
 ### `UsbCompositeDevice`
 - **Fields**: `repl_port: UsbPortHandle`, `bridge_port: UsbPortHandle`, `device_builder: embassy_usb::Builder`.
@@ -88,7 +78,7 @@
 - **Validation rules**: Process one command at a time to honor FR-005; rely on the line editor to gate invalid characters so parser errors are reported generically (`ERR <code> <message>`) without caret positioning; integrate with telemetry for observability.
 
 ### `CommandExecutor`
-- **Fields**: references to `CommandQueue`, `EvidenceLogger`, `BridgeQueue`, `BridgeActivityMonitor`, and configuration state.
+- **Fields**: references to `CommandQueue`, `BridgeQueue`, `BridgeActivityMonitor`, and configuration state.
 - **Relationships**: Invoked by `ReplSession` once parsing succeeds; translates high-level commands into orchestrator actions or configuration changes.
 - **Validation rules**: Must acknowledge command completion/failure; reject illegal combinations before they reach strap logic; `status` composes a snapshot of each strap state plus relative ages for bridge RX/TX activity; `recovery now` registers a bridge listener before enqueuing the `RecoveryImmediate` template.
 
@@ -147,7 +137,6 @@
 ## Relationships Summary
 - `StrapOrchestrator` consumes `CommandQueue` and emits strap timing telemetry.
 - `ReplSession` sits atop the CDC transport, using `CommandGrammar`, `CompletionEngine`, and `CommandExecutor` to provide an interactive CLI.
-- `EvidenceLogger` subscribes to `StrapOrchestrator`, `JetsonPowerMonitor`, and `BridgeActivityMonitor` events, forwarding summaries into the REPL diagnostics stream.
 - `UsbCdcBridgeTask` and `UartBridgeTask` coordinate through `BridgeQueue` to provide transparent UART bridging while allowing control channel traffic; `BridgeActivityMonitor` taps the RX stream to notify recovery sequences.
 - `CommandQueue` ensures serialized operation per FR-005; `SequenceRun` enforces strap timings per BS-001..BS-003.
-- `TelemetryRecord` instances back `Bench Validation` evidence by timestamping strap changes, retries, and Jetson power indications.
+- Defmt logs provide the audit trail for strap changes, retries, telemetry updates, and queue activity.
