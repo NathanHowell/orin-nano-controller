@@ -119,7 +119,7 @@ mod tests {
             TelemetryEventKind::StrapAsserted(StrapLineId::Power)
         );
 
-        now = now + Duration::from_millis(200);
+        now += Duration::from_millis(200);
         orchestrator.drive_active_run(&mut telemetry, now);
         {
             let run = orchestrator.active_run().expect("active run missing");
@@ -135,7 +135,7 @@ mod tests {
             TelemetryEventKind::StrapReleased(StrapLineId::Power)
         );
 
-        now = now + Duration::from_millis(1_000);
+        now += Duration::from_millis(1_000);
         orchestrator.drive_active_run(&mut telemetry, now);
         {
             let run = orchestrator.active_run().expect("active run missing");
@@ -147,7 +147,7 @@ mod tests {
             TelemetryEventKind::StrapAsserted(StrapLineId::Reset)
         );
 
-        now = now + Duration::from_millis(20);
+        now += Duration::from_millis(20);
         orchestrator.drive_active_run(&mut telemetry, now);
         {
             let run = orchestrator.active_run().expect("active run missing");

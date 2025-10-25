@@ -6,9 +6,11 @@
 //! queue/sequence types that satisfy these traits while reusing the shared
 //! business logic housed in `controller-core`.
 
-use core::fmt;
+use core::{fmt, ops::Add, time::Duration};
 
-use crate::sequences::StrapSequenceKind;
+use heapless::Vec;
+
+use crate::sequences::{SequenceTemplate, StrapSequenceKind, normal_reboot_template};
 
 /// Identifier used when tracking emitted telemetry events.
 pub type EventId = u32;
@@ -319,3 +321,444 @@ pub trait SequenceRunControl: SequenceRunView {
 pub trait SequenceRunStateMachine: SequenceRunControl {}
 
 impl<T> SequenceRunStateMachine for T where T: SequenceRunControl {}
+
+/// Total number of distinct [`StrapSequenceKind`] variants.
+pub const SEQUENCE_KIND_COUNT: usize = 4;
+
+/// Maximum number of templates we expect to register for the controller.
+pub const MAX_SEQUENCE_TEMPLATES: usize = SEQUENCE_KIND_COUNT;
+
+/// Registry tracking strap sequence templates by [`StrapSequenceKind`].
+#[derive(Clone)]
+pub struct TemplateRegistry<const CAPACITY: usize = MAX_SEQUENCE_TEMPLATES> {
+    templates: Vec<SequenceTemplate, CAPACITY>,
+}
+
+impl<const CAPACITY: usize> TemplateRegistry<CAPACITY> {
+    /// Creates an empty registry.
+    pub const fn new() -> Self {
+        Self {
+            templates: Vec::new(),
+        }
+    }
+
+    /// Registers (or replaces) a template in the registry.
+    pub fn register(&mut self, template: SequenceTemplate) -> Result<(), TemplateRegistryError> {
+        if let Some(existing) = self
+            .templates
+            .iter_mut()
+            .find(|existing| existing.kind == template.kind)
+        {
+            *existing = template;
+            Ok(())
+        } else {
+            self.templates
+                .push(template)
+                .map_err(|_| TemplateRegistryError::RegistryFull)
+        }
+    }
+
+    /// Looks up a template by kind.
+    pub fn get(&self, kind: StrapSequenceKind) -> Option<&SequenceTemplate> {
+        self.templates.iter().find(|template| template.kind == kind)
+    }
+
+    /// Returns `true` when the registry already contains a template for `kind`.
+    pub fn contains(&self, kind: StrapSequenceKind) -> bool {
+        self.get(kind).is_some()
+    }
+
+    /// Returns the number of registered templates.
+    pub fn len(&self) -> usize {
+        self.templates.len()
+    }
+
+    /// Returns `true` when no templates are stored.
+    pub fn is_empty(&self) -> bool {
+        self.templates.is_empty()
+    }
+
+    /// Provides an iterator over registered templates.
+    pub fn iter(&self) -> core::slice::Iter<'_, SequenceTemplate> {
+        self.templates.iter()
+    }
+}
+
+impl<const CAPACITY: usize> Default for TemplateRegistry<CAPACITY> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Errors that may occur while managing the template registry.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum TemplateRegistryError {
+    /// Registry has reached [`MAX_SEQUENCE_TEMPLATES`].
+    RegistryFull,
+}
+
+fn sequence_kind_index(kind: StrapSequenceKind) -> usize {
+    match kind {
+        StrapSequenceKind::NormalReboot => 0,
+        StrapSequenceKind::RecoveryEntry => 1,
+        StrapSequenceKind::RecoveryImmediate => 2,
+        StrapSequenceKind::FaultRecovery => 3,
+    }
+}
+
+/// Tracks cooldown deadlines for each sequence kind.
+#[derive(Clone, Debug)]
+pub struct CooldownTracker<Instant> {
+    next_allowed: [Option<Instant>; SEQUENCE_KIND_COUNT],
+}
+
+impl<Instant> CooldownTracker<Instant>
+where
+    Instant: Copy + Ord,
+{
+    /// Creates a tracker with no cooldowns enforced.
+    pub const fn new() -> Self {
+        Self {
+            next_allowed: [None; SEQUENCE_KIND_COUNT],
+        }
+    }
+
+    /// Returns the timestamp when the sequence kind may run again, if any.
+    pub fn next_allowed(&self, kind: StrapSequenceKind) -> Option<Instant> {
+        self.next_allowed[sequence_kind_index(kind)]
+    }
+
+    /// Returns `true` when the sequence may start at `now`.
+    pub fn is_ready(&self, kind: StrapSequenceKind, now: Instant) -> bool {
+        match self.next_allowed(kind) {
+            Some(deadline) => now >= deadline,
+            None => true,
+        }
+    }
+
+    /// Clears the cooldown for the given sequence kind.
+    pub fn clear(&mut self, kind: StrapSequenceKind) {
+        self.next_allowed[sequence_kind_index(kind)] = None;
+    }
+}
+
+impl<Instant> CooldownTracker<Instant>
+where
+    Instant: Copy + Ord,
+{
+    fn update_deadline(&mut self, kind: StrapSequenceKind, deadline: Instant) {
+        let slot = &mut self.next_allowed[sequence_kind_index(kind)];
+        match slot {
+            Some(current) if *current >= deadline => {}
+            _ => *slot = Some(deadline),
+        }
+    }
+
+    /// Records a cooldown deadline starting at `start`.
+    pub fn reserve_with_duration(
+        &mut self,
+        kind: StrapSequenceKind,
+        start: Instant,
+        cooldown: Duration,
+    ) where
+        Instant: Add<Duration, Output = Instant>,
+    {
+        let deadline = start + cooldown;
+        self.update_deadline(kind, deadline);
+    }
+}
+
+impl<Instant> Default for CooldownTracker<Instant>
+where
+    Instant: Copy + Ord,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Errors that may occur while attempting to enqueue a sequence command.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ScheduleError<E, Instant> {
+    /// Underlying queue rejected the command.
+    Queue(CommandEnqueueError<E>),
+    /// No template is registered for the requested sequence kind.
+    MissingTemplate(StrapSequenceKind),
+    /// Sequence is cooling down until the provided timestamp.
+    CooldownActive {
+        kind: StrapSequenceKind,
+        ready_at: Instant,
+    },
+}
+
+impl<E, Instant> From<CommandEnqueueError<E>> for ScheduleError<E, Instant> {
+    fn from(value: CommandEnqueueError<E>) -> Self {
+        ScheduleError::Queue(value)
+    }
+}
+
+/// High-level scheduler that enqueues strap sequences while respecting cooldowns.
+pub struct SequenceScheduler<P, const CAPACITY: usize = MAX_SEQUENCE_TEMPLATES>
+where
+    P: CommandQueueProducer,
+{
+    producer: P,
+    templates: TemplateRegistry<CAPACITY>,
+    cooldowns: CooldownTracker<P::Instant>,
+}
+
+impl<P, const CAPACITY: usize> SequenceScheduler<P, CAPACITY>
+where
+    P: CommandQueueProducer,
+    P::Instant: Copy + Ord + Add<Duration, Output = P::Instant>,
+{
+    /// Creates a scheduler that owns the provided queue producer.
+    pub fn new(producer: P) -> Self {
+        let mut scheduler = Self {
+            producer,
+            templates: TemplateRegistry::new(),
+            cooldowns: CooldownTracker::new(),
+        };
+
+        scheduler
+            .templates
+            .register(normal_reboot_template())
+            .expect("default template registration should succeed");
+
+        scheduler
+    }
+
+    /// Accesses the underlying queue producer.
+    pub fn producer(&self) -> &P {
+        &self.producer
+    }
+
+    /// Mutably accesses the underlying queue producer.
+    pub fn producer_mut(&mut self) -> &mut P {
+        &mut self.producer
+    }
+
+    /// Returns a read-only view of the template registry.
+    pub fn templates(&self) -> &TemplateRegistry<CAPACITY> {
+        &self.templates
+    }
+
+    /// Returns a mutable view of the template registry.
+    pub fn templates_mut(&mut self) -> &mut TemplateRegistry<CAPACITY> {
+        &mut self.templates
+    }
+
+    /// Returns a read-only view of the cooldown tracker.
+    pub fn cooldowns(&self) -> &CooldownTracker<P::Instant> {
+        &self.cooldowns
+    }
+
+    /// Attempts to enqueue a sequence command.
+    pub fn enqueue(
+        &mut self,
+        kind: StrapSequenceKind,
+        requested_at: P::Instant,
+        source: CommandSource,
+    ) -> Result<(), ScheduleError<P::Error, P::Instant>> {
+        let template = self
+            .templates
+            .get(kind)
+            .ok_or(ScheduleError::MissingTemplate(kind))?;
+
+        if let Some(deadline) = self.cooldowns.next_allowed(kind)
+            && requested_at < deadline
+        {
+            return Err(ScheduleError::CooldownActive {
+                kind,
+                ready_at: deadline,
+            });
+        }
+
+        let command = SequenceCommand::new(kind, requested_at, source);
+        self.producer
+            .try_enqueue(command)
+            .map_err(ScheduleError::from)?;
+
+        self.cooldowns
+            .reserve_with_duration(kind, requested_at, template.cooldown_duration());
+
+        Ok(())
+    }
+
+    /// Updates cooldown tracking after a sequence completes.
+    pub fn notify_completed(
+        &mut self,
+        kind: StrapSequenceKind,
+        completed_at: P::Instant,
+    ) -> Result<(), ScheduleError<P::Error, P::Instant>> {
+        let template = self
+            .templates
+            .get(kind)
+            .ok_or(ScheduleError::MissingTemplate(kind))?;
+
+        self.cooldowns
+            .reserve_with_duration(kind, completed_at, template.cooldown_duration());
+
+        Ok(())
+    }
+
+    /// Clears cooldown state for the provided sequence kind.
+    pub fn reset_cooldown(&mut self, kind: StrapSequenceKind) {
+        self.cooldowns.clear(kind);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use heapless::Vec as HeaplessVec;
+
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    struct MockInstant(u64);
+
+    impl MockInstant {
+        fn micros(value: u64) -> Self {
+            Self(value)
+        }
+    }
+
+    impl Add<Duration> for MockInstant {
+        type Output = Self;
+
+        fn add(self, rhs: Duration) -> Self::Output {
+            Self(self.0 + rhs.as_micros() as u64)
+        }
+    }
+
+    #[derive(Clone)]
+    struct MockQueue {
+        capacity: usize,
+        commands: HeaplessVec<SequenceCommand<MockInstant>, 8>,
+    }
+
+    impl MockQueue {
+        fn new(capacity: usize) -> Self {
+            Self {
+                capacity,
+                commands: HeaplessVec::new(),
+            }
+        }
+
+        fn commands(&self) -> &[SequenceCommand<MockInstant>] {
+            &self.commands
+        }
+    }
+
+    impl CommandQueueProducer for MockQueue {
+        type Instant = MockInstant;
+        type Error = ();
+
+        fn try_enqueue(
+            &mut self,
+            command: SequenceCommand<Self::Instant>,
+        ) -> Result<(), CommandEnqueueError<Self::Error>> {
+            if self.commands.len() >= self.capacity {
+                return Err(CommandEnqueueError::QueueFull);
+            }
+
+            self.commands
+                .push(command)
+                .map_err(|_| CommandEnqueueError::QueueFull)
+        }
+
+        fn capacity(&self) -> Option<usize> {
+            Some(self.capacity)
+        }
+
+        fn len(&self) -> Option<usize> {
+            Some(self.commands.len())
+        }
+    }
+
+    #[test]
+    fn normal_reboot_registered_by_default() {
+        let queue = MockQueue::new(4);
+        let scheduler = SequenceScheduler::<MockQueue>::new(queue);
+        assert!(
+            scheduler
+                .templates()
+                .contains(StrapSequenceKind::NormalReboot)
+        );
+    }
+
+    #[test]
+    fn enqueue_records_normal_reboot_command() {
+        let queue = MockQueue::new(4);
+        let mut scheduler = SequenceScheduler::<MockQueue>::new(queue);
+        let now = MockInstant::micros(0);
+
+        scheduler
+            .enqueue(StrapSequenceKind::NormalReboot, now, CommandSource::UsbHost)
+            .expect("enqueue should succeed");
+
+        let commands = scheduler.producer().commands();
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].kind, StrapSequenceKind::NormalReboot);
+        assert_eq!(commands[0].requested_at, now);
+    }
+
+    #[test]
+    fn enqueue_respects_cooldown() {
+        let queue = MockQueue::new(4);
+        let mut scheduler = SequenceScheduler::<MockQueue>::new(queue);
+        let first_at = MockInstant::micros(0);
+
+        scheduler
+            .enqueue(
+                StrapSequenceKind::NormalReboot,
+                first_at,
+                CommandSource::UsbHost,
+            )
+            .expect("first enqueue should succeed");
+
+        let second_at = MockInstant::micros(500_000);
+        let result = scheduler.enqueue(
+            StrapSequenceKind::NormalReboot,
+            second_at,
+            CommandSource::UsbHost,
+        );
+
+        assert!(matches!(
+            result,
+            Err(ScheduleError::CooldownActive {
+                kind: StrapSequenceKind::NormalReboot,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn notify_completed_updates_cooldown_deadline() {
+        let queue = MockQueue::new(4);
+        let mut scheduler = SequenceScheduler::<MockQueue>::new(queue);
+        let start = MockInstant::micros(0);
+
+        scheduler
+            .enqueue(
+                StrapSequenceKind::NormalReboot,
+                start,
+                CommandSource::UsbHost,
+            )
+            .expect("first enqueue should succeed");
+
+        let completion = MockInstant::micros(2_500_000);
+        scheduler
+            .notify_completed(StrapSequenceKind::NormalReboot, completion)
+            .expect("completion should update cooldown");
+
+        let next_allowed = scheduler
+            .cooldowns()
+            .next_allowed(StrapSequenceKind::NormalReboot)
+            .expect("cooldown deadline missing");
+
+        assert_eq!(
+            next_allowed,
+            completion + normal_reboot_template().cooldown_duration()
+        );
+    }
+}
