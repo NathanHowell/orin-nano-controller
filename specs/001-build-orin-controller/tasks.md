@@ -49,7 +49,7 @@ IMPORTANT: please refer to existing `firmware` code for reusable logic that can 
 - [X] T008 [P] Implement REPL tokenization and grammar parsing using `logos` + `winnow` in `controller-core/src/repl/grammar.rs`.
 - [X] T009 [P] Publish telemetry event enums and payload structures in `controller-core/src/telemetry/mod.rs`.
 - [X] T010 [P] Register `controller-core` and `emulator` in the workspace manifest and share dependencies in the root `Cargo.toml`.
-- [ ] T011 [P] Add the `controller-core` dependency plus trait adapter scaffolding in `firmware/Cargo.toml` and `firmware/src/hw/mod.rs`.
+- [X] T011 [P] Add the `controller-core` dependency plus trait adapter scaffolding in `firmware/Cargo.toml` and `firmware/src/hw/mod.rs`.
 - [ ] T012 [P] Scaffold the `emulator` crate with a host REPL entry point in `emulator/Cargo.toml` and `emulator/src/main.rs`.
 - [ ] T013 [P] Add smoke tests that compile `controller-core` for host and `thumbv6m` targets in `controller-core/tests/orchestrator.rs`.
 

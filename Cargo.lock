@@ -666,6 +666,7 @@ dependencies = [
 name = "orin-nano-controller"
 version = "0.1.0"
 dependencies = [
+ "controller-core",
  "cortex-m",
  "cortex-m-rt",
  "defmt 0.3.100",

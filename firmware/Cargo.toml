@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+controller-core = { path = "../controller-core" }
 embassy-time = { workspace = true }
 embassy-sync = { workspace = true }
 heapless = { workspace = true }
