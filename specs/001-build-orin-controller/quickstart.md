@@ -16,6 +16,7 @@
    ```bash
    cargo build --target thumbv6m-none-eabi -p orin-nano-controller
    ```
+   The workspace `.cargo/config.toml` already defaults to `thumbv6m-none-eabi`, so the explicit `--target` flag is optional as long as the cross target has been installed.
 3. **Flash & stream defmt logs**
    ```bash
    probe-rs run --chip STM32G0B1KETx \

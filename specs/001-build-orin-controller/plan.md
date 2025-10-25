@@ -17,6 +17,7 @@ Stand up a shared `controller-core` crate that owns strap orchestration, queuein
 **Project Type**: Embedded firmware + host CLI (multi-crate workspace)  
 **Performance Goals**: Meet strap timing windows (RESET ≥20 ms, REC prehold 100 ms, power button 200±20 ms); sustain UART bridge throughput at 115200 bps without overflow; REPL command latency <50 ms once line submitted; release binary footprint within 512 kB flash / 144 kB RAM (stretch ≤64 kB flash)  
 **Constraints**: `controller-core` must stay `#![no_std]` compatible (guarded by `alloc` feature toggles if needed); `firmware` remains allocator-free with dual CDC enumeration; `emulator` may use `std` but must not diverge behavior; VDD_3V3 rail budget <500 mA; serialized strap sequences (no overlap).  
+**Cargo Config**: Workspace `.cargo/config.toml` defaults builds to `thumbv6m-none-eabi` and invokes `probe-rs run --chip stm32g0b1ketx`; install the target via `rustup target add thumbv6m-none-eabi` and `probe-rs-tools` on host systems to satisfy the runner.  
 **Scale/Scope**: Single controller per device; REPL queue depth 4; no multi-host coordination required
 
 ## Constitution Check
