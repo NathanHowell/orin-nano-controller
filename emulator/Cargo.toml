@@ -1,0 +1,10 @@
+[package]
+name = "controller-emulator"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "controller-emulator"
+path = "src/main.rs"
+
+[dependencies]
