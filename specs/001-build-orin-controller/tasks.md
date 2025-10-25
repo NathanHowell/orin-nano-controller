@@ -30,7 +30,7 @@ description: "Task list template for feature implementation"
 
 **Purpose**: Align documentation, tooling, and bench instrumentation before restructuring the workspace.
 
-- [ ] T001 Update Constitution gate answers for the controller-core/firmware/emulator split in `specs/001-build-orin-controller/plan.md`.
+- [X] T001 Update Constitution gate answers for the controller-core/firmware/emulator split in `specs/001-build-orin-controller/plan.md`.
 - [ ] T002 [P] Record bench instrumentation readiness (logic analyzer, oscilloscope, SWD probe) in `specs/001-build-orin-controller/evidence/bench-setup.md`.
 - [ ] T003 [P] Confirm the Rust toolchain pin (`1.90.0`) in `rust-toolchain.toml` matches the plan requirements.
 - [ ] T004 [P] Verify the default `thumbv6m-none-eabi` target configuration in `firmware/.cargo/config.toml` and note any required host setup steps.
