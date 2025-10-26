@@ -10,8 +10,13 @@ use core::time::Duration;
 use crate::telemetry::TelemetryEventKind;
 
 pub mod normal;
+pub mod recovery;
 
 pub use normal::{NORMAL_REBOOT_TEMPLATE, normal_reboot_template};
+pub use recovery::{
+    RECOVERY_ENTRY_TEMPLATE, RECOVERY_IMMEDIATE_TEMPLATE, recovery_entry_template,
+    recovery_immediate_template,
+};
 
 /// Longest sequence we expect to encode (FaultRecovery) plus one step of headroom.
 pub const MAX_SEQUENCE_STEPS: usize = 8;
