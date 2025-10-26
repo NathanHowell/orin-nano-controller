@@ -12,12 +12,13 @@ use crate::orchestrator::{
 };
 use crate::sequences::StrapSequenceKind;
 
-use super::grammar::{self, Command, RebootCommand};
+use super::grammar::{self, Command, RebootCommand, RecoveryCommand};
 
 /// Command execution successes.
 #[derive(Clone, Debug, PartialEq)]
 pub enum CommandOutcome<Instant> {
     Reboot(RebootAck<Instant>),
+    Recovery(RecoveryAck<Instant>),
 }
 
 /// Summary returned after queueing a reboot command.
@@ -25,6 +26,14 @@ pub enum CommandOutcome<Instant> {
 pub struct RebootAck<Instant> {
     pub requested_at: Instant,
     pub start_after: Option<Duration>,
+}
+
+/// Summary returned after queueing a recovery command.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RecoveryAck<Instant> {
+    pub requested_at: Instant,
+    pub sequence: StrapSequenceKind,
+    pub command: RecoveryCommand,
 }
 
 /// Errors surfaced while executing a command.
@@ -54,6 +63,11 @@ type CommandResult<'a, S> = Result<
 
 type RebootResult<S> = Result<
     RebootAck<<S as SequenceEnqueuer>::Instant>,
+    ScheduleError<<S as SequenceEnqueuer>::Error, <S as SequenceEnqueuer>::Instant>,
+>;
+
+type RecoveryResult<S> = Result<
+    RecoveryAck<<S as SequenceEnqueuer>::Instant>,
     ScheduleError<<S as SequenceEnqueuer>::Error, <S as SequenceEnqueuer>::Instant>,
 >;
 
@@ -146,7 +160,10 @@ where
                 .handle_reboot(action, now, source)
                 .map(CommandOutcome::Reboot)
                 .map_err(CommandError::Schedule),
-            Command::Recovery(_) => Err(CommandError::Unsupported("recovery")),
+            Command::Recovery(action) => self
+                .handle_recovery(action, now, source)
+                .map(CommandOutcome::Recovery)
+                .map_err(CommandError::Schedule),
             Command::Fault(_) => Err(CommandError::Unsupported("fault")),
             Command::Status => Err(CommandError::Unsupported("status")),
             Command::Help(_) => Err(CommandError::Unsupported("help")),
@@ -177,6 +194,34 @@ where
             start_after,
         })
     }
+
+    fn handle_recovery(
+        &mut self,
+        action: RecoveryCommand,
+        now: S::Instant,
+        source: CommandSource,
+    ) -> RecoveryResult<S> {
+        let (sequence, flags) = match action {
+            RecoveryCommand::Enter => (StrapSequenceKind::RecoveryEntry, CommandFlags::default()),
+            RecoveryCommand::Exit => (StrapSequenceKind::NormalReboot, CommandFlags::default()),
+            RecoveryCommand::Now => {
+                let flags = CommandFlags {
+                    force_recovery: true,
+                    ..CommandFlags::default()
+                };
+                (StrapSequenceKind::RecoveryImmediate, flags)
+            }
+        };
+
+        self.scheduler
+            .enqueue_sequence(sequence, now, source, flags)?;
+
+        Ok(RecoveryAck {
+            requested_at: now,
+            sequence,
+            command: action,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -184,6 +229,7 @@ mod tests {
     use super::*;
     use crate::orchestrator::{CommandEnqueueError, CommandQueueProducer};
     use crate::orchestrator::{CommandSource, SequenceCommand};
+    use crate::sequences::{recovery_entry_template, recovery_immediate_template};
     use core::ops::Add;
     use core::time::Duration;
     use heapless::Vec as HeaplessVec;
@@ -252,7 +298,16 @@ mod tests {
 
     fn executor_with_capacity(capacity: usize) -> CommandExecutor<SequenceScheduler<MockQueue>> {
         let queue = MockQueue::new(capacity);
-        let scheduler = SequenceScheduler::new(queue);
+        let mut scheduler = SequenceScheduler::new(queue);
+        {
+            let templates = scheduler.templates_mut();
+            templates
+                .register(recovery_entry_template())
+                .expect("register RecoveryEntry template");
+            templates
+                .register(recovery_immediate_template())
+                .expect("register RecoveryImmediate template");
+        }
         CommandExecutor::new(scheduler)
     }
 
@@ -336,5 +391,74 @@ mod tests {
             error,
             CommandError::Schedule(ScheduleError::Queue(CommandEnqueueError::QueueFull))
         ));
+    }
+
+    #[test]
+    fn recovery_enter_enqueues_recovery_entry() {
+        let mut executor = executor_with_capacity(4);
+        let now = MockInstant::micros(5_000);
+
+        let outcome = executor
+            .execute("recovery enter", now, CommandSource::UsbHost)
+            .expect("dispatch should succeed");
+
+        assert_eq!(
+            outcome,
+            CommandOutcome::Recovery(RecoveryAck {
+                requested_at: now,
+                sequence: StrapSequenceKind::RecoveryEntry,
+                command: RecoveryCommand::Enter,
+            })
+        );
+
+        let commands = executor.scheduler().producer().commands();
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].kind, StrapSequenceKind::RecoveryEntry);
+    }
+
+    #[test]
+    fn recovery_now_enqueues_recovery_immediate() {
+        let mut executor = executor_with_capacity(4);
+        let now = MockInstant::micros(6_000);
+
+        let outcome = executor
+            .execute("recovery now", now, CommandSource::UsbHost)
+            .expect("dispatch should succeed");
+
+        assert_eq!(
+            outcome,
+            CommandOutcome::Recovery(RecoveryAck {
+                requested_at: now,
+                sequence: StrapSequenceKind::RecoveryImmediate,
+                command: RecoveryCommand::Now,
+            })
+        );
+
+        let commands = executor.scheduler().producer().commands();
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].kind, StrapSequenceKind::RecoveryImmediate);
+    }
+
+    #[test]
+    fn recovery_exit_reuses_normal_reboot_sequence() {
+        let mut executor = executor_with_capacity(4);
+        let now = MockInstant::micros(7_000);
+
+        let outcome = executor
+            .execute("recovery exit", now, CommandSource::UsbHost)
+            .expect("dispatch should succeed");
+
+        assert_eq!(
+            outcome,
+            CommandOutcome::Recovery(RecoveryAck {
+                requested_at: now,
+                sequence: StrapSequenceKind::NormalReboot,
+                command: RecoveryCommand::Exit,
+            })
+        );
+
+        let commands = executor.scheduler().producer().commands();
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].kind, StrapSequenceKind::NormalReboot);
     }
 }

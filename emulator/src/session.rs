@@ -8,9 +8,13 @@ use controller_core::orchestrator::{
     CommandEnqueueError, CommandQueueProducer, CommandSource, ScheduleError, SequenceCommand,
     SequenceScheduler,
 };
-use controller_core::repl::commands::{CommandError, CommandExecutor, CommandOutcome, RebootAck};
+use controller_core::repl::commands::{
+    CommandError, CommandExecutor, CommandOutcome, RebootAck, RecoveryAck,
+};
+use controller_core::repl::grammar::RecoveryCommand;
 use controller_core::sequences::{
     SequenceTemplate, StepCompletion, StrapAction, StrapSequenceKind, StrapStep,
+    recovery_entry_template, recovery_immediate_template,
 };
 
 const DEFAULT_QUEUE_DEPTH: usize = 4;
@@ -50,7 +54,16 @@ impl Session {
         let path = log_path.into();
         let transcript = TranscriptLogger::new(&path)?;
         let queue = HostQueue::new(DEFAULT_QUEUE_DEPTH);
-        let scheduler = SequenceScheduler::new(queue);
+        let mut scheduler = SequenceScheduler::new(queue);
+        {
+            let templates = scheduler.templates_mut();
+            templates
+                .register(recovery_entry_template())
+                .expect("register RecoveryEntry template");
+            templates
+                .register(recovery_immediate_template())
+                .expect("register RecoveryImmediate template");
+        }
         let executor = CommandExecutor::new(scheduler);
 
         Ok(Self {
@@ -81,6 +94,7 @@ impl Session {
         let now = HostInstant::now();
         match self.executor.execute(trimmed, now, CommandSource::UsbHost) {
             Ok(CommandOutcome::Reboot(ack)) => self.handle_reboot(ack, elapsed),
+            Ok(CommandOutcome::Recovery(ack)) => self.handle_recovery(ack, elapsed),
             Err(CommandError::Parse(err)) => {
                 let message = format!("ERR syntax {err}");
                 let lines = vec![message];
@@ -135,6 +149,52 @@ impl Session {
         ack: RebootAck<HostInstant>,
         elapsed: Duration,
     ) -> io::Result<Vec<String>> {
+        let start_delay = ack.start_after.unwrap_or(Duration::ZERO);
+        self.handle_sequence(
+            "reboot",
+            StrapSequenceKind::NormalReboot,
+            ack.requested_at,
+            start_delay,
+            elapsed,
+        )
+    }
+
+    fn handle_recovery(
+        &mut self,
+        ack: RecoveryAck<HostInstant>,
+        elapsed: Duration,
+    ) -> io::Result<Vec<String>> {
+        let label = match ack.command {
+            RecoveryCommand::Enter => "recovery enter",
+            RecoveryCommand::Exit => "recovery exit",
+            RecoveryCommand::Now => "recovery now",
+        };
+
+        self.handle_sequence(
+            label,
+            ack.sequence,
+            ack.requested_at,
+            Duration::ZERO,
+            elapsed,
+        )
+    }
+
+    fn record_output(&mut self, elapsed: Duration, lines: &[String]) -> io::Result<()> {
+        for line in lines {
+            self.transcript
+                .append_line(elapsed, TranscriptRole::Emulator, line)?;
+        }
+        Ok(())
+    }
+
+    fn handle_sequence(
+        &mut self,
+        label: &str,
+        sequence: StrapSequenceKind,
+        requested_at: HostInstant,
+        start_after: Duration,
+        elapsed: Duration,
+    ) -> io::Result<Vec<String>> {
         self.command_count += 1;
         let sequence_id = self.command_count;
 
@@ -143,31 +203,31 @@ impl Session {
             let queue_depth = scheduler.producer().len().unwrap_or(0);
             let template = *scheduler
                 .templates()
-                .get(StrapSequenceKind::NormalReboot)
-                .expect("normal reboot template missing");
+                .get(sequence)
+                .expect("sequence template missing");
             (queue_depth, template)
         };
 
-        let start_delay = ack.start_after.unwrap_or_else(|| Duration::from_millis(0));
         let run_duration = sequence_run_duration(&template);
-        let completion = ack.requested_at + start_delay + run_duration;
+        let completion = requested_at + start_after + run_duration;
         let cooldown = template.cooldown_duration();
         let cooldown_ready = completion + cooldown;
 
         let mut lines = Vec::new();
-        let request_offset = ack.requested_at.duration_since(self.started_at);
+        let request_offset = requested_at.duration_since(self.started_at);
         let cooldown_offset = cooldown_ready.duration_since(self.started_at);
 
         lines.push(format!(
-            "OK reboot queued seq={sequence_id} at=+{}ms start-after={} cooldown={} ready=+{}ms queue-depth={queue_depth}",
+            "OK {label} queued seq={sequence_id} at=+{}ms start-after={} cooldown={} ready=+{}ms queue-depth={queue_depth}",
             request_offset.as_millis(),
-            format_duration_short(start_delay),
+            format_duration_short(start_after),
             format_duration_short(cooldown),
             cooldown_offset.as_millis(),
         ));
 
         lines.push(format!(
-            "NormalReboot run-duration={} steps={}",
+            "{:?} run-duration={} steps={}",
+            sequence,
             format_duration_short(run_duration),
             template.step_count()
         ));
@@ -178,20 +238,12 @@ impl Session {
 
         {
             let scheduler = self.executor.scheduler_mut();
-            let _ = scheduler.notify_completed(StrapSequenceKind::NormalReboot, completion);
+            let _ = scheduler.notify_completed(sequence, completion);
             let _ = scheduler.producer_mut().pop_front();
         }
 
         self.record_output(elapsed, &lines)?;
         Ok(lines)
-    }
-
-    fn record_output(&mut self, elapsed: Duration, lines: &[String]) -> io::Result<()> {
-        for line in lines {
-            self.transcript
-                .append_line(elapsed, TranscriptRole::Emulator, line)?;
-        }
-        Ok(())
     }
 }
 
