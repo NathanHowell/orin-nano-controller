@@ -9,6 +9,9 @@
 use embassy_sync::channel::{Channel, Receiver, Sender};
 use embassy_time::Instant;
 
+use crate::straps::{EventId, TelemetryEventKind};
+use crate::telemetry::{TelemetryPayload, TelemetryRecorder};
+
 #[cfg(not(target_os = "none"))]
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 #[cfg(target_os = "none")]
@@ -55,6 +58,17 @@ pub struct BridgeActivityEvent {
     pub kind: BridgeActivityKind,
     pub timestamp: Instant,
     pub bytes: usize,
+}
+
+/// Result emitted when the monitor processes an activity event.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BridgeActivityUpdate {
+    /// Raw activity metadata forwarded by the bridge tasks.
+    pub event: BridgeActivityEvent,
+    /// Telemetry record identifier generated for the activity (if any).
+    pub telemetry_event: Option<EventId>,
+    /// Indicates whether the REC strap should be released due to console activity.
+    pub release_recovery: bool,
 }
 
 /// Channel used to publish bridge activity events.
@@ -177,11 +191,23 @@ impl<'a> BridgeActivityMonitor<'a> {
     }
 
     /// Processes a single pending activity event, if available.
-    pub fn poll(&mut self) -> Option<BridgeActivityEvent> {
-        self.subscriber
-            .try_receive()
-            .ok()
-            .inspect(|event| self.track(event))
+    pub fn poll(&mut self, telemetry: &mut TelemetryRecorder) -> Option<BridgeActivityUpdate> {
+        let event = self.subscriber.try_receive().ok()?;
+
+        if event.bytes == 0 {
+            return None;
+        }
+
+        self.track(&event);
+        let release = self.handle_recovery_release(&event);
+        let telemetry_event = self.record_telemetry(telemetry, &event);
+        log_bridge_activity(&event, release);
+
+        Some(BridgeActivityUpdate {
+            event,
+            telemetry_event,
+            release_recovery: release,
+        })
     }
 
     /// Marks the USB control link as attached and logs the transition.
@@ -217,6 +243,30 @@ impl<'a> BridgeActivityMonitor<'a> {
             BridgeActivityKind::JetsonToUsb => self.last_rx = Some(event.timestamp),
         }
     }
+
+    fn handle_recovery_release(&mut self, event: &BridgeActivityEvent) -> bool {
+        if event.kind != BridgeActivityKind::JetsonToUsb || !self.pending_recovery_release {
+            return false;
+        }
+
+        self.pending_recovery_release = false;
+        true
+    }
+
+    fn record_telemetry(
+        &mut self,
+        telemetry: &mut TelemetryRecorder,
+        event: &BridgeActivityEvent,
+    ) -> Option<EventId> {
+        match event.kind {
+            BridgeActivityKind::JetsonToUsb => Some(telemetry.record(
+                TelemetryEventKind::RecoveryConsoleActivity,
+                TelemetryPayload::None,
+                event.timestamp,
+            )),
+            BridgeActivityKind::UsbToJetson => None,
+        }
+    }
 }
 
 #[cfg(target_os = "none")]
@@ -250,6 +300,62 @@ fn log_usb_disconnect(pending_recovery: bool, timestamp: Instant) {
     }
 }
 
+#[cfg(target_os = "none")]
+fn log_bridge_activity(event: &BridgeActivityEvent, release: bool) {
+    match event.kind {
+        BridgeActivityKind::UsbToJetson => {
+            defmt::debug!(
+                "bridge: usb→jetson bytes={=usize} t={}us",
+                event.bytes,
+                event.timestamp.as_micros()
+            );
+        }
+        BridgeActivityKind::JetsonToUsb => {
+            if release {
+                defmt::info!(
+                    "bridge: recovery console activity bytes={=usize} t={}us (releasing REC)",
+                    event.bytes,
+                    event.timestamp.as_micros()
+                );
+            } else {
+                defmt::debug!(
+                    "bridge: jetson→usb bytes={=usize} t={}us",
+                    event.bytes,
+                    event.timestamp.as_micros()
+                );
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "none"))]
+fn log_bridge_activity(event: &BridgeActivityEvent, release: bool) {
+    match event.kind {
+        BridgeActivityKind::UsbToJetson => {
+            println!(
+                "bridge: usb→jetson bytes={} t={}us",
+                event.bytes,
+                event.timestamp.as_micros()
+            );
+        }
+        BridgeActivityKind::JetsonToUsb => {
+            if release {
+                println!(
+                    "bridge: recovery console activity bytes={} t={}us (releasing REC)",
+                    event.bytes,
+                    event.timestamp.as_micros()
+                );
+            } else {
+                println!(
+                    "bridge: jetson→usb bytes={} t={}us",
+                    event.bytes,
+                    event.timestamp.as_micros()
+                );
+            }
+        }
+    }
+}
+
 #[cfg(not(target_os = "none"))]
 fn log_usb_disconnect(pending_recovery: bool, timestamp: Instant) {
     if pending_recovery {
@@ -262,5 +368,92 @@ fn log_usb_disconnect(pending_recovery: bool, timestamp: Instant) {
             "bridge: USB control link lost t={}us",
             timestamp.as_micros()
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn jetson_activity_releases_pending_recovery_and_records_telemetry() {
+        let bus = BridgeActivityBus::new();
+        let sender = bus.sender();
+        let subscriber = bus.receiver();
+        let mut monitor = BridgeActivityMonitor::new(subscriber);
+        let mut telemetry = TelemetryRecorder::new();
+
+        monitor.set_pending(true);
+
+        sender
+            .try_send(BridgeActivityEvent {
+                kind: BridgeActivityKind::JetsonToUsb,
+                timestamp: Instant::from_micros(5_000),
+                bytes: 17,
+            })
+            .expect("send should succeed");
+
+        let update = monitor
+            .poll(&mut telemetry)
+            .expect("activity update missing");
+
+        assert!(update.release_recovery);
+        assert!(!monitor.is_pending());
+        let record = telemetry.latest().expect("telemetry missing");
+        assert_eq!(record.event, TelemetryEventKind::RecoveryConsoleActivity);
+        assert_eq!(record.timestamp, Instant::from_micros(5_000));
+        assert_eq!(update.telemetry_event, Some(record.id));
+    }
+
+    #[test]
+    fn usb_to_jetson_activity_updates_tx_timestamp_only() {
+        let bus = BridgeActivityBus::new();
+        let sender = bus.sender();
+        let subscriber = bus.receiver();
+        let mut monitor = BridgeActivityMonitor::new(subscriber);
+        let mut telemetry = TelemetryRecorder::new();
+
+        sender
+            .try_send(BridgeActivityEvent {
+                kind: BridgeActivityKind::UsbToJetson,
+                timestamp: Instant::from_micros(10_000),
+                bytes: 8,
+            })
+            .expect("send should succeed");
+
+        let update = monitor
+            .poll(&mut telemetry)
+            .expect("activity update missing");
+
+        assert!(!update.release_recovery);
+        assert_eq!(monitor.last_tx(), Some(Instant::from_micros(10_000)));
+        assert_eq!(monitor.last_rx(), None);
+        assert!(update.telemetry_event.is_none());
+        assert_eq!(telemetry.len(), 0);
+    }
+
+    #[test]
+    fn zero_length_frames_are_ignored() {
+        let bus = BridgeActivityBus::new();
+        let sender = bus.sender();
+        let subscriber = bus.receiver();
+        let mut monitor = BridgeActivityMonitor::new(subscriber);
+        let mut telemetry = TelemetryRecorder::new();
+
+        monitor.set_pending(true);
+
+        sender
+            .try_send(BridgeActivityEvent {
+                kind: BridgeActivityKind::JetsonToUsb,
+                timestamp: Instant::from_micros(15_000),
+                bytes: 0,
+            })
+            .expect("send should succeed");
+
+        assert!(monitor.poll(&mut telemetry).is_none());
+        assert!(monitor.last_rx().is_none());
+        assert!(monitor.last_tx().is_none());
+        assert!(monitor.is_pending());
+        assert_eq!(telemetry.len(), 0);
     }
 }
