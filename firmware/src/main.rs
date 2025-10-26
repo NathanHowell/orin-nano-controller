@@ -25,9 +25,11 @@ use crate::bridge::{BridgeActivityBus, BridgeQueue};
 #[cfg(target_os = "none")]
 use crate::straps::CommandSender;
 #[cfg(target_os = "none")]
-use crate::straps::orchestrator::StrapOrchestrator;
+use crate::straps::orchestrator::{HardwareStrapDriver, NoopPowerMonitor, StrapOrchestrator};
 #[cfg(target_os = "none")]
 use crate::telemetry::TelemetryRecorder;
+#[cfg(target_os = "none")]
+use embassy_stm32::gpio::{Level, OutputOpenDrain, Speed};
 
 #[cfg(target_os = "none")]
 static COMMAND_QUEUE: straps::CommandQueue = Channel::new();
@@ -40,10 +42,20 @@ static BRIDGE_ACTIVITY: BridgeActivityBus = BridgeActivityBus::new();
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let config = hal::Config::default();
-    let _ = hal::init(config);
+    let hal::Peripherals {
+        PA2, PA3, PA4, PA5, ..
+    } = hal::init(config);
+
+    let strap_driver = HardwareStrapDriver::new(
+        OutputOpenDrain::new(PA4, Level::High, Speed::Low),
+        OutputOpenDrain::new(PA3, Level::High, Speed::Low),
+        OutputOpenDrain::new(PA2, Level::High, Speed::Low),
+        OutputOpenDrain::new(PA5, Level::High, Speed::Low),
+    );
 
     let command_receiver = COMMAND_QUEUE.receiver();
-    let orchestrator = StrapOrchestrator::new(command_receiver);
+    let orchestrator =
+        StrapOrchestrator::with_components(command_receiver, NoopPowerMonitor::new(), strap_driver);
     let telemetry = TelemetryRecorder::new();
 
     spawner
@@ -69,7 +81,7 @@ fn main() {}
 #[cfg(target_os = "none")]
 #[embassy_executor::task]
 async fn strap_task(
-    orchestrator: StrapOrchestrator<'static>,
+    orchestrator: StrapOrchestrator<'static, NoopPowerMonitor, HardwareStrapDriver<'static>>,
     mut telemetry: TelemetryRecorder,
 ) -> ! {
     orchestrator.run(&mut telemetry).await;

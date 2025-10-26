@@ -12,10 +12,13 @@ use crate::telemetry::{TelemetryPayload, TelemetryRecorder};
 use embassy_time::{Duration, Instant, Timer};
 use heapless::{Deque, Vec};
 
+#[cfg(target_os = "none")]
+use embassy_stm32::gpio::OutputOpenDrain;
+
 use super::{
-    COMMAND_QUEUE_DEPTH, CommandReceiver, EventId, STRAP_LINES, SequenceCommand, SequenceError,
-    SequenceOutcome, SequenceRun, SequenceState, SequenceTemplate, StepCompletion, StrapAction,
-    StrapSequenceKind, StrapStep, TelemetryEventKind,
+    COMMAND_QUEUE_DEPTH, CommandReceiver, EventId, McuPin, STRAP_LINES, SequenceCommand,
+    SequenceError, SequenceOutcome, SequenceRun, SequenceState, SequenceTemplate, StepCompletion,
+    StrapAction, StrapLine, StrapLineId, StrapSequenceKind, StrapStep, TelemetryEventKind,
 };
 
 /// Total number of sequence templates expected for this controller.
@@ -76,6 +79,110 @@ impl TemplateRegistry {
     /// Returns an iterator over registered templates.
     pub fn iter(&self) -> core::slice::Iter<'_, SequenceTemplate> {
         self.templates.iter()
+    }
+}
+
+fn strap_metadata(line: StrapLineId) -> &'static StrapLine {
+    STRAP_LINES
+        .iter()
+        .find(|candidate| candidate.id == line)
+        .expect("strap metadata missing")
+}
+
+fn strap_label(line: StrapLineId) -> &'static str {
+    match line {
+        StrapLineId::Reset => "RESET*",
+        StrapLineId::Recovery => "REC*",
+        StrapLineId::Power => "PWR*",
+        StrapLineId::Apo => "APO",
+    }
+}
+
+fn mcu_pin_label(pin: McuPin) -> &'static str {
+    match pin {
+        McuPin::Pa2 => "PA2",
+        McuPin::Pa3 => "PA3",
+        McuPin::Pa4 => "PA4",
+        McuPin::Pa5 => "PA5",
+    }
+}
+
+fn strap_action_label(action: StrapAction) -> &'static str {
+    match action {
+        StrapAction::AssertLow => "assert-low",
+        StrapAction::ReleaseHigh => "release-high",
+    }
+}
+
+pub(crate) trait StrapDriver {
+    fn apply(&mut self, line: StrapLineId, action: StrapAction);
+    fn release_all(&mut self);
+}
+
+#[derive(Default)]
+pub(crate) struct NoopStrapDriver;
+
+impl NoopStrapDriver {
+    const fn new() -> Self {
+        Self
+    }
+}
+
+impl StrapDriver for NoopStrapDriver {
+    fn apply(&mut self, _: StrapLineId, _: StrapAction) {}
+
+    fn release_all(&mut self) {}
+}
+
+#[cfg(target_os = "none")]
+pub struct HardwareStrapDriver<'d> {
+    reset: OutputOpenDrain<'d>,
+    recovery: OutputOpenDrain<'d>,
+    power: OutputOpenDrain<'d>,
+    apo: OutputOpenDrain<'d>,
+}
+
+#[cfg(target_os = "none")]
+impl<'d> HardwareStrapDriver<'d> {
+    pub fn new(
+        reset: OutputOpenDrain<'d>,
+        recovery: OutputOpenDrain<'d>,
+        power: OutputOpenDrain<'d>,
+        apo: OutputOpenDrain<'d>,
+    ) -> Self {
+        Self {
+            reset,
+            recovery,
+            power,
+            apo,
+        }
+    }
+
+    fn output_mut(&mut self, line: StrapLineId) -> &mut OutputOpenDrain<'d> {
+        match line {
+            StrapLineId::Reset => &mut self.reset,
+            StrapLineId::Recovery => &mut self.recovery,
+            StrapLineId::Power => &mut self.power,
+            StrapLineId::Apo => &mut self.apo,
+        }
+    }
+}
+
+#[cfg(target_os = "none")]
+impl<'d> StrapDriver for HardwareStrapDriver<'d> {
+    fn apply(&mut self, line: StrapLineId, action: StrapAction) {
+        let output = self.output_mut(line);
+        match action {
+            StrapAction::AssertLow => output.set_low(),
+            StrapAction::ReleaseHigh => output.set_high(),
+        }
+    }
+
+    fn release_all(&mut self) {
+        self.reset.set_high();
+        self.recovery.set_high();
+        self.power.set_high();
+        self.apo.set_high();
     }
 }
 
@@ -194,18 +301,6 @@ mod tests {
     }
 }
 
-fn release_all_straps_for_run(
-    run: &mut SequenceRun,
-    telemetry: &mut TelemetryRecorder,
-    timestamp: Instant,
-) {
-    for strap in STRAP_LINES.iter() {
-        let event_id =
-            telemetry.record_strap_transition(strap.id, StrapAction::ReleaseHigh, timestamp);
-        let _ = run.track_event(event_id);
-    }
-}
-
 #[cfg(target_os = "none")]
 fn log_control_link_attached(timestamp: Instant) {
     defmt::info!(
@@ -248,6 +343,34 @@ fn log_control_link_lost(had_active_run: bool, recovery_pending: bool, timestamp
     println!(
         "orchestrator: USB control link lost ({}) t={}us",
         tag,
+        timestamp.as_micros()
+    );
+}
+
+#[cfg(target_os = "none")]
+fn log_strap_drive(line: StrapLineId, action: StrapAction, timestamp: Instant) {
+    let strap = strap_metadata(line);
+    defmt::info!(
+        "straps:{} {} pin={} driver={} J14-{=u8} t={}us",
+        strap_label(line),
+        strap_action_label(action),
+        mcu_pin_label(strap.mcu_pin),
+        strap.driver_channel.as_str(),
+        strap.j14_pin,
+        timestamp.as_micros()
+    );
+}
+
+#[cfg(not(target_os = "none"))]
+fn log_strap_drive(line: StrapLineId, action: StrapAction, timestamp: Instant) {
+    let strap = strap_metadata(line);
+    println!(
+        "straps:{} {} pin={} driver={} J14-{} t={}us",
+        strap_label(line),
+        strap_action_label(action),
+        mcu_pin_label(strap.mcu_pin),
+        strap.driver_channel.as_str(),
+        strap.j14_pin,
         timestamp.as_micros()
     );
 }
@@ -491,9 +614,14 @@ pub enum TransitionError {
 }
 
 /// Coordinates strap sequencing based on queued commands.
-pub struct StrapOrchestrator<'a, M: PowerMonitor = NoopPowerMonitor> {
+pub struct StrapOrchestrator<
+    'a,
+    M: PowerMonitor = NoopPowerMonitor,
+    D: StrapDriver = NoopStrapDriver,
+> {
     command_rx: CommandReceiver<'a>,
     templates: TemplateRegistry,
+    strap_driver: D,
     active_run: Option<SequenceRun>,
     last_rejection: Option<CommandRejection>,
     pending_commands: Deque<QueuedCommand, COMMAND_QUEUE_DEPTH>,
@@ -506,14 +634,19 @@ pub struct StrapOrchestrator<'a, M: PowerMonitor = NoopPowerMonitor> {
 impl<'a> StrapOrchestrator<'a> {
     /// Creates a new orchestrator with an empty template registry.
     pub fn new(command_rx: CommandReceiver<'a>) -> Self {
-        StrapOrchestrator::with_power_monitor(command_rx, NoopPowerMonitor::new())
+        StrapOrchestrator::with_components(
+            command_rx,
+            NoopPowerMonitor::new(),
+            NoopStrapDriver::new(),
+        )
     }
 
     /// Creates a new orchestrator seeded with templates.
     pub fn with_templates(command_rx: CommandReceiver<'a>, templates: TemplateRegistry) -> Self {
-        StrapOrchestrator::with_power_monitor_and_templates(
+        StrapOrchestrator::with_components_and_templates(
             command_rx,
             NoopPowerMonitor::new(),
+            NoopStrapDriver::new(),
             templates,
         )
     }
@@ -522,9 +655,36 @@ impl<'a> StrapOrchestrator<'a> {
 impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
     /// Creates a new orchestrator with a supplied power monitor.
     pub fn with_power_monitor(command_rx: CommandReceiver<'a>, power_monitor: M) -> Self {
+        StrapOrchestrator::with_components(command_rx, power_monitor, NoopStrapDriver::new())
+    }
+
+    /// Creates a new orchestrator with templates and a supplied power monitor.
+    pub fn with_power_monitor_and_templates(
+        command_rx: CommandReceiver<'a>,
+        power_monitor: M,
+        templates: TemplateRegistry,
+    ) -> Self {
+        StrapOrchestrator::with_components_and_templates(
+            command_rx,
+            power_monitor,
+            NoopStrapDriver::new(),
+            templates,
+        )
+    }
+}
+
+impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
+    /// Creates a new orchestrator with supplied hardware components.
+    pub fn with_components(
+        command_rx: CommandReceiver<'a>,
+        power_monitor: M,
+        mut strap_driver: D,
+    ) -> Self {
+        strap_driver.release_all();
         Self {
             command_rx,
             templates: TemplateRegistry::new(),
+            strap_driver,
             active_run: None,
             last_rejection: None,
             pending_commands: Deque::new(),
@@ -535,23 +695,16 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
         }
     }
 
-    /// Creates a new orchestrator with templates and a supplied power monitor.
-    pub fn with_power_monitor_and_templates(
+    /// Creates a new orchestrator with templates and supplied hardware components.
+    pub fn with_components_and_templates(
         command_rx: CommandReceiver<'a>,
         power_monitor: M,
+        strap_driver: D,
         templates: TemplateRegistry,
     ) -> Self {
-        Self {
-            command_rx,
-            templates,
-            active_run: None,
-            last_rejection: None,
-            pending_commands: Deque::new(),
-            power_monitor,
-            last_power_sample: None,
-            recovering_power: false,
-            control_link_attached: true,
-        }
+        let mut orchestrator = Self::with_components(command_rx, power_monitor, strap_driver);
+        orchestrator.templates = templates;
+        orchestrator
     }
 
     /// Returns the current orchestrator state.
@@ -648,7 +801,11 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
 
         if let Some(run) = self.active_run.as_mut() {
             let _ = run.track_event(disconnect_event);
-            release_all_straps_for_run(run, telemetry, timestamp);
+        }
+
+        self.release_all_straps(telemetry, timestamp);
+
+        if let Some(run) = self.active_run.as_mut() {
             run.state = SequenceState::Error(SequenceError::ControlLinkLost);
         }
 
@@ -923,22 +1080,21 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
         telemetry: &mut TelemetryRecorder,
         now: Instant,
     ) -> bool {
-        let Some(run) = self.active_run.as_mut() else {
+        if let Some(run) = self.active_run.as_mut() {
+            run.waiting_on_bridge = matches!(step.completion, StepCompletion::OnBridgeActivity);
+            run.step_started_at = Some(now);
+            if run.sequence_started_at.is_none() {
+                run.sequence_started_at = Some(now);
+            }
+            run.step_deadline = match step.completion {
+                StepCompletion::AfterDuration => Some(now + step.hold_for),
+                _ => None,
+            };
+        } else {
             return false;
-        };
-
-        run.waiting_on_bridge = matches!(step.completion, StepCompletion::OnBridgeActivity);
-        run.step_started_at = Some(now);
-        if run.sequence_started_at.is_none() {
-            run.sequence_started_at = Some(now);
         }
-        run.step_deadline = match step.completion {
-            StepCompletion::AfterDuration => Some(now + step.hold_for),
-            _ => None,
-        };
 
-        let event_id = telemetry.record_strap_transition(step.line, step.action, now);
-        let _ = run.track_event(event_id);
+        self.drive_strap_transition(step.line, step.action, telemetry, now);
         true
     }
 
@@ -1127,6 +1283,28 @@ impl<'a, M: PowerMonitor> StrapOrchestrator<'a, M> {
             }
 
             Timer::after(self.idle_delay()).await;
+        }
+    }
+
+    fn drive_strap_transition(
+        &mut self,
+        line: StrapLineId,
+        action: StrapAction,
+        telemetry: &mut TelemetryRecorder,
+        timestamp: Instant,
+    ) {
+        self.strap_driver.apply(line, action);
+        log_strap_drive(line, action, timestamp);
+
+        let event_id = telemetry.record_strap_transition(line, action, timestamp);
+        if let Some(run) = self.active_run.as_mut() {
+            let _ = run.track_event(event_id);
+        }
+    }
+
+    fn release_all_straps(&mut self, telemetry: &mut TelemetryRecorder, timestamp: Instant) {
+        for strap in STRAP_LINES.iter() {
+            self.drive_strap_transition(strap.id, StrapAction::ReleaseHigh, telemetry, timestamp);
         }
     }
 
