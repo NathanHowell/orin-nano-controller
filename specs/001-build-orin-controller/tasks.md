@@ -70,7 +70,7 @@ IMPORTANT: please refer to existing `firmware` code for reusable logic that can 
 - [X] T016 [P] [US1] Implement `reboot now|delay` parsing and command dispatch in `controller-core/src/repl/commands.rs`.
 - [X] T017 [P] [US1] Add host-side unit tests covering `NormalReboot` durations in `controller-core/tests/normal_reboot.rs`.
 - [X] T018 [P] [US1] Bind controller-core strap operations to STM32 pins with defmt telemetry in `firmware/src/straps/orchestrator.rs`.
-- [ ] T019 [P] [US1] Expose a reboot command in the emulator session and log parity transcripts to `emulator/src/session.rs` and `specs/001-build-orin-controller/evidence/emulator-reboot.log`.
+- [X] T019 [P] [US1] Expose a reboot command in the emulator session and log parity transcripts to `emulator/src/session.rs` and `specs/001-build-orin-controller/evidence/emulator-reboot.log`.
 - [ ] T020 [US1] Capture the normal reboot logic analyzer trace at `specs/001-build-orin-controller/evidence/normal-reboot.sal`.
 - [ ] T021 [US1] Record queue serialization defmt output for overlapping reboot commands in `specs/001-build-orin-controller/evidence/queue-serialization.log`.
 - [ ] T022 [US1] Update reboot timing and telemetry references in `specs/001-build-orin-controller/spec.md`.
