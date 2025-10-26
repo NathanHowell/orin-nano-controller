@@ -89,7 +89,7 @@ IMPORTANT: please refer to existing `firmware` code for reusable logic that can 
 ### Tasks
 
 - [X] T024 [US2] Implement `RecoveryEntry` and `RecoveryImmediate` templates with pre/post REC windows in `controller-core/src/sequences/recovery.rs`.
-- [ ] T025 [P] [US2] Extend orchestrator logic to hold REC until bridge activity or timeout in `controller-core/src/orchestrator/mod.rs`.
+- [X] T025 [P] [US2] Extend orchestrator logic to hold REC until bridge activity or timeout in `controller-core/src/orchestrator/mod.rs`.
 - [ ] T026 [P] [US2] Publish bridge activity telemetry hooks driving REC release in `firmware/src/bridge/mod.rs`.
 - [ ] T027 [P] [US2] Implement `recovery enter|exit|now` parsing with grammar validation in `controller-core/src/repl/commands.rs`.
 - [ ] T028 [P] [US2] Mirror recovery workflows in the emulator and archive transcripts in `emulator/src/session.rs` and `specs/001-build-orin-controller/evidence/emulator-recovery.log`.

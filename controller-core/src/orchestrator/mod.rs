@@ -10,7 +10,9 @@ use core::{fmt, ops::Add, time::Duration};
 
 use heapless::Vec;
 
-use crate::sequences::{SequenceTemplate, StrapSequenceKind, normal_reboot_template};
+use crate::sequences::{
+    SequenceTemplate, StepCompletion, StrapSequenceKind, StrapStep, normal_reboot_template,
+};
 
 /// Identifier used when tracking emitted telemetry events.
 pub type EventId = u32;
@@ -327,6 +329,113 @@ impl<T> SequenceRunStateMachine for T where T: SequenceRunControl {}
 /// Total number of distinct [`StrapSequenceKind`] variants.
 pub const SEQUENCE_KIND_COUNT: usize = 4;
 
+/// Default timeout used when waiting for bridge activity during recovery.
+pub const DEFAULT_BRIDGE_ACTIVITY_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Configuration controlling how long the orchestrator waits for bridge activity.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct BridgeHoldConfig {
+    timeout: Duration,
+}
+
+impl BridgeHoldConfig {
+    /// Creates a configuration with the provided timeout.
+    pub const fn new(timeout: Duration) -> Self {
+        Self { timeout }
+    }
+
+    /// Returns the configured timeout duration.
+    pub const fn timeout(&self) -> Duration {
+        self.timeout
+    }
+
+    /// Returns `true` when the timeout is non-zero.
+    pub const fn has_timeout(&self) -> bool {
+        !self.timeout.is_zero()
+    }
+}
+
+impl Default for BridgeHoldConfig {
+    fn default() -> Self {
+        Self::new(DEFAULT_BRIDGE_ACTIVITY_TIMEOUT)
+    }
+}
+
+/// Applies per-step timing semantics, including bridge wait configuration.
+pub fn configure_step_timing<R>(
+    run: &mut R,
+    step: &StrapStep,
+    now: R::Instant,
+    bridge: &BridgeHoldConfig,
+) -> Option<R::Instant>
+where
+    R: SequenceRunControl,
+    R::Instant: Copy + Add<Duration, Output = R::Instant>,
+{
+    match step.completion {
+        StepCompletion::AfterDuration => {
+            run.set_waiting_on_bridge(false);
+            let deadline = now + step.hold_duration();
+            run.set_step_deadline(Some(deadline));
+            Some(deadline)
+        }
+        StepCompletion::OnBridgeActivity => begin_bridge_wait(run, now, bridge),
+        StepCompletion::OnEvent(_) => {
+            run.set_waiting_on_bridge(false);
+            run.set_step_deadline(None);
+            None
+        }
+    }
+}
+
+/// Marks the active step as waiting for bridge activity.
+pub fn begin_bridge_wait<R>(
+    run: &mut R,
+    now: R::Instant,
+    config: &BridgeHoldConfig,
+) -> Option<R::Instant>
+where
+    R: SequenceRunControl,
+    R::Instant: Copy + Add<Duration, Output = R::Instant>,
+{
+    run.set_waiting_on_bridge(true);
+
+    if !config.has_timeout() {
+        run.set_step_deadline(None);
+        None
+    } else {
+        let deadline = now + config.timeout();
+        run.set_step_deadline(Some(deadline));
+        Some(deadline)
+    }
+}
+
+/// Clears bridge wait state in response to observed activity.
+pub fn satisfy_bridge_wait<R>(run: &mut R)
+where
+    R: SequenceRunControl,
+{
+    if run.waiting_on_bridge() {
+        run.set_waiting_on_bridge(false);
+        run.set_step_deadline(None);
+    }
+}
+
+/// Returns `true` when the configured bridge wait timeout has elapsed.
+pub fn bridge_wait_timed_out<R>(run: &R, now: R::Instant) -> bool
+where
+    R: SequenceRunView,
+{
+    if !run.waiting_on_bridge() {
+        return false;
+    }
+
+    match run.step_deadline() {
+        Some(deadline) => now >= deadline,
+        None => false,
+    }
+}
+
 /// Maximum number of templates we expect to register for the controller.
 pub const MAX_SEQUENCE_TEMPLATES: usize = SEQUENCE_KIND_COUNT;
 
@@ -624,6 +733,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sequences::{Milliseconds, StrapAction, StrapId, TimingConstraintSet};
     use heapless::Vec as HeaplessVec;
 
     #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -632,6 +742,10 @@ mod tests {
     impl MockInstant {
         fn micros(value: u64) -> Self {
             Self(value)
+        }
+
+        fn value(self) -> u64 {
+            self.0
         }
     }
 
@@ -685,6 +799,130 @@ mod tests {
 
         fn len(&self) -> Option<usize> {
             Some(self.commands.len())
+        }
+    }
+
+    #[derive(Clone)]
+    struct MockRun {
+        command: SequenceCommand<MockInstant>,
+        state: SequenceState,
+        retry_count: u8,
+        waiting_on_bridge: bool,
+        sequence_started_at: Option<MockInstant>,
+        current_step_index: Option<usize>,
+        step_deadline: Option<MockInstant>,
+        cooldown_deadline: Option<MockInstant>,
+        events: HeaplessVec<EventId, 8>,
+    }
+
+    impl MockRun {
+        fn new() -> Self {
+            Self {
+                command: SequenceCommand::new(
+                    StrapSequenceKind::NormalReboot,
+                    MockInstant::micros(0),
+                    CommandSource::UsbHost,
+                ),
+                state: SequenceState::Executing,
+                retry_count: 0,
+                waiting_on_bridge: false,
+                sequence_started_at: None,
+                current_step_index: Some(0),
+                step_deadline: None,
+                cooldown_deadline: None,
+                events: HeaplessVec::new(),
+            }
+        }
+    }
+
+    impl SequenceRunView for MockRun {
+        type Instant = MockInstant;
+        type EventId = EventId;
+
+        fn command(&self) -> &SequenceCommand<Self::Instant> {
+            &self.command
+        }
+
+        fn state(&self) -> SequenceState {
+            self.state
+        }
+
+        fn retry_count(&self) -> u8 {
+            self.retry_count
+        }
+
+        fn waiting_on_bridge(&self) -> bool {
+            self.waiting_on_bridge
+        }
+
+        fn sequence_started_at(&self) -> Option<Self::Instant> {
+            self.sequence_started_at
+        }
+
+        fn current_step_index(&self) -> Option<usize> {
+            self.current_step_index
+        }
+
+        fn step_deadline(&self) -> Option<Self::Instant> {
+            self.step_deadline
+        }
+
+        fn cooldown_deadline(&self) -> Option<Self::Instant> {
+            self.cooldown_deadline
+        }
+
+        fn emitted_events(&self) -> &[Self::EventId] {
+            self.events.as_slice()
+        }
+    }
+
+    impl SequenceRunControl for MockRun {
+        fn set_state(&mut self, next: SequenceState) -> Result<(), TransitionError> {
+            self.state = next;
+            Ok(())
+        }
+
+        fn set_sequence_started_at(&mut self, instant: Option<Self::Instant>) {
+            self.sequence_started_at = instant;
+        }
+
+        fn set_current_step_index(&mut self, index: Option<usize>) {
+            self.current_step_index = index;
+        }
+
+        fn set_step_deadline(&mut self, deadline: Option<Self::Instant>) {
+            self.step_deadline = deadline;
+        }
+
+        fn set_cooldown_deadline(&mut self, deadline: Option<Self::Instant>) {
+            self.cooldown_deadline = deadline;
+        }
+
+        fn set_waiting_on_bridge(&mut self, waiting: bool) {
+            self.waiting_on_bridge = waiting;
+        }
+
+        fn record_event(&mut self, event_id: Self::EventId) -> bool {
+            self.events.push(event_id).is_ok()
+        }
+
+        fn clear_events(&mut self) {
+            self.events.clear();
+        }
+
+        fn increment_retry(&mut self) {
+            self.retry_count = self.retry_count.saturating_add(1);
+        }
+
+        fn reset_for_retry(&mut self) {
+            self.retry_count = 0;
+            self.state = SequenceState::Arming;
+            self.waiting_on_bridge = false;
+            self.sequence_started_at = None;
+            self.current_step_index = None;
+            self.step_deadline = None;
+            self.cooldown_deadline = None;
+            self.events.clear();
         }
     }
 
@@ -773,5 +1011,89 @@ mod tests {
             next_allowed,
             completion + normal_reboot_template().cooldown_duration()
         );
+    }
+
+    #[test]
+    fn bridge_wait_sets_flag_and_deadline() {
+        let mut run = MockRun::new();
+        let config = BridgeHoldConfig::new(Duration::from_secs(5));
+        let step = StrapStep::new(
+            StrapId::Rec,
+            StrapAction::AssertLow,
+            Milliseconds::ZERO,
+            TimingConstraintSet::unrestricted(),
+            StepCompletion::OnBridgeActivity,
+        );
+        let now = MockInstant::micros(1_000);
+        let deadline =
+            configure_step_timing(&mut run, &step, now, &config).expect("deadline expected");
+
+        assert!(run.waiting_on_bridge());
+        assert_eq!(run.step_deadline(), Some(deadline));
+        assert_eq!(deadline, now + config.timeout());
+    }
+
+    #[test]
+    fn satisfy_bridge_wait_clears_state() {
+        let mut run = MockRun::new();
+        let config = BridgeHoldConfig::default();
+        let step = StrapStep::new(
+            StrapId::Rec,
+            StrapAction::AssertLow,
+            Milliseconds::ZERO,
+            TimingConstraintSet::unrestricted(),
+            StepCompletion::OnBridgeActivity,
+        );
+
+        let now = MockInstant::micros(0);
+        configure_step_timing(&mut run, &step, now, &config);
+        satisfy_bridge_wait(&mut run);
+
+        assert!(!run.waiting_on_bridge());
+        assert!(run.step_deadline().is_none());
+    }
+
+    #[test]
+    fn bridge_wait_timeout_detects_expiry() {
+        let mut run = MockRun::new();
+        let config = BridgeHoldConfig::new(Duration::from_secs(2));
+        let step = StrapStep::new(
+            StrapId::Rec,
+            StrapAction::AssertLow,
+            Milliseconds::ZERO,
+            TimingConstraintSet::unrestricted(),
+            StepCompletion::OnBridgeActivity,
+        );
+
+        let start = MockInstant::micros(0);
+        let deadline =
+            configure_step_timing(&mut run, &step, start, &config).expect("deadline expected");
+
+        assert!(!bridge_wait_timed_out(&run, start));
+        assert!(bridge_wait_timed_out(&run, deadline));
+
+        let after = MockInstant::micros(deadline.value() + 1);
+        assert!(bridge_wait_timed_out(&run, after));
+    }
+
+    #[test]
+    fn bridge_wait_without_timeout_skips_deadline() {
+        let mut run = MockRun::new();
+        let config = BridgeHoldConfig::new(Duration::from_secs(0));
+        let step = StrapStep::new(
+            StrapId::Rec,
+            StrapAction::AssertLow,
+            Milliseconds::ZERO,
+            TimingConstraintSet::unrestricted(),
+            StepCompletion::OnBridgeActivity,
+        );
+
+        let now = MockInstant::micros(0);
+        let deadline = configure_step_timing(&mut run, &step, now, &config);
+
+        assert!(run.waiting_on_bridge());
+        assert!(deadline.is_none());
+        assert!(run.step_deadline().is_none());
+        assert!(!bridge_wait_timed_out(&run, MockInstant::micros(1_000_000)));
     }
 }
