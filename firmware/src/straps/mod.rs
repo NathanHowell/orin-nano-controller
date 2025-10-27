@@ -142,7 +142,7 @@ impl<'a> CommandProducer<'a> {
 
 impl<'a> core_orch::CommandQueueProducer for CommandProducer<'a> {
     type Instant = Instant;
-    type Error = TrySendError<SequenceCommand>;
+    type Error = ();
 
     fn try_enqueue(
         &mut self,

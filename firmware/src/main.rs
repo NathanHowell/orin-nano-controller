@@ -22,6 +22,8 @@ use embassy_time::{Duration, Timer};
 #[cfg(target_os = "none")]
 use crate::bridge::{BridgeActivityBus, BridgeQueue};
 #[cfg(target_os = "none")]
+use crate::repl::ReplSession;
+#[cfg(target_os = "none")]
 use crate::straps::CommandSender;
 #[cfg(target_os = "none")]
 use crate::straps::orchestrator::{HardwareStrapDriver, NoopPowerMonitor, StrapOrchestrator};
@@ -88,10 +90,9 @@ async fn strap_task(
 
 #[cfg(target_os = "none")]
 #[embassy_executor::task]
-async fn repl_task(_command_sender: CommandSender<'static>) -> ! {
-    loop {
-        Timer::after(Duration::from_secs(1)).await;
-    }
+async fn repl_task(command_sender: CommandSender<'static>) -> ! {
+    let mut session = ReplSession::new(command_sender);
+    session.run().await;
 }
 
 #[cfg(target_os = "none")]
