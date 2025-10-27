@@ -115,7 +115,7 @@ IMPORTANT: please refer to existing `firmware` code for reusable logic that can 
 
 ### Tasks
 
-- [ ] T032 [US3] Define the `FaultRecovery` sequence with APO pre-hold and retry budget in `controller-core/src/sequences/fault.rs`.
+- [X] T032 [US3] Define the `FaultRecovery` sequence with APO pre-hold and retry budget in `controller-core/src/sequences/fault.rs`.
 - [ ] T033 [P] [US3] Extend telemetry to log fault recovery reason codes and retry counts in `controller-core/src/telemetry/mod.rs`.
 - [ ] T034 [P] [US3] Implement `fault recover retries=` parsing and command dispatch in `controller-core/src/repl/commands.rs`.
 - [ ] T035 [P] [US3] Integrate APO control and retry loop handling in `firmware/src/straps/orchestrator.rs`.

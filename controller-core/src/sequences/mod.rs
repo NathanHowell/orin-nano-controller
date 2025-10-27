@@ -9,9 +9,11 @@ use core::time::Duration;
 
 use crate::telemetry::TelemetryEventKind;
 
+pub mod fault;
 pub mod normal;
 pub mod recovery;
 
+pub use fault::{FAULT_RECOVERY_TEMPLATE, fault_recovery_template};
 pub use normal::{NORMAL_REBOOT_TEMPLATE, normal_reboot_template};
 pub use recovery::{
     RECOVERY_ENTRY_TEMPLATE, RECOVERY_IMMEDIATE_TEMPLATE, recovery_entry_template,
