@@ -116,8 +116,8 @@ IMPORTANT: please refer to existing `firmware` code for reusable logic that can 
 ### Tasks
 
 - [X] T032 [US3] Define the `FaultRecovery` sequence with APO pre-hold and retry budget in `controller-core/src/sequences/fault.rs`.
-- [ ] T033 [P] [US3] Extend telemetry to log fault recovery reason codes and retry counts in `controller-core/src/telemetry/mod.rs`.
-- [ ] T034 [P] [US3] Implement `fault recover retries=` parsing and command dispatch in `controller-core/src/repl/commands.rs`.
+- [X] T033 [P] [US3] Extend telemetry to log fault recovery reason codes and retry counts in `controller-core/src/telemetry/mod.rs`.
+- [X] T034 [P] [US3] Implement `fault recover retries=` parsing and command dispatch in `controller-core/src/repl/commands.rs`.
 - [ ] T035 [P] [US3] Integrate APO control and retry loop handling in `firmware/src/straps/orchestrator.rs`.
 - [ ] T050 [P] [US3] Finalize firmware task coordination by sharing telemetry/command state across `strap_task`, `repl_task`, and `bridge_task` to support fault recovery retries in `firmware/src/main.rs`.
 - [ ] T036 [P] [US3] Add emulator fault recovery parity logging to `emulator/src/session.rs` and `specs/001-build-orin-controller/evidence/emulator-fault.log`.

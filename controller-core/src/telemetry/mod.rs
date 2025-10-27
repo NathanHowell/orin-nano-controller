@@ -202,6 +202,7 @@ pub struct SequenceTelemetry {
     pub outcome: SequenceOutcome,
     pub duration: Option<Duration>,
     pub events_recorded: u8,
+    pub fault: Option<FaultRecoveryTelemetry>,
 }
 
 impl SequenceTelemetry {
@@ -214,7 +215,77 @@ impl SequenceTelemetry {
             outcome,
             duration,
             events_recorded,
+            fault: None,
         }
+    }
+
+    /// Attaches fault recovery details to the telemetry payload.
+    pub const fn with_fault(mut self, details: FaultRecoveryTelemetry) -> Self {
+        self.fault = Some(details);
+        self
+    }
+}
+
+/// Encoded details describing a fault recovery attempt.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct FaultRecoveryTelemetry {
+    pub reason: FaultRecoveryReason,
+    pub retries: u8,
+}
+
+impl FaultRecoveryTelemetry {
+    /// Creates a new fault recovery telemetry payload.
+    pub const fn new(reason: FaultRecoveryReason, retries: u8) -> Self {
+        Self { reason, retries }
+    }
+}
+
+/// Reason codes recorded when fault recovery runs.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum FaultRecoveryReason {
+    /// Operator invoked the manual fault recovery command.
+    ManualRequest,
+    /// Automated recovery triggered after detecting a brown-out.
+    BrownOutDetected,
+    /// Control USB link dropped during fault handling.
+    ControlLinkLost,
+    /// Console watchdog timed out waiting for Jetson UART activity.
+    ConsoleWatchdogTimeout,
+    /// Implementation-specific extension.
+    Custom(u8),
+}
+
+impl FaultRecoveryReason {
+    const MANUAL_REQUEST_CODE: u8 = 0x00;
+    const BROWN_OUT_CODE: u8 = 0x01;
+    const CONTROL_LINK_LOST_CODE: u8 = 0x02;
+    const CONSOLE_WATCHDOG_CODE: u8 = 0x03;
+
+    /// Encodes the reason into a compact numeric discriminant.
+    pub const fn to_raw(self) -> u8 {
+        match self {
+            FaultRecoveryReason::ManualRequest => Self::MANUAL_REQUEST_CODE,
+            FaultRecoveryReason::BrownOutDetected => Self::BROWN_OUT_CODE,
+            FaultRecoveryReason::ControlLinkLost => Self::CONTROL_LINK_LOST_CODE,
+            FaultRecoveryReason::ConsoleWatchdogTimeout => Self::CONSOLE_WATCHDOG_CODE,
+            FaultRecoveryReason::Custom(code) => code,
+        }
+    }
+
+    /// Decodes a compact numeric discriminant into a fault recovery reason.
+    pub const fn from_raw(code: u8) -> Self {
+        match code {
+            Self::MANUAL_REQUEST_CODE => FaultRecoveryReason::ManualRequest,
+            Self::BROWN_OUT_CODE => FaultRecoveryReason::BrownOutDetected,
+            Self::CONTROL_LINK_LOST_CODE => FaultRecoveryReason::ControlLinkLost,
+            Self::CONSOLE_WATCHDOG_CODE => FaultRecoveryReason::ConsoleWatchdogTimeout,
+            other => FaultRecoveryReason::Custom(other),
+        }
+    }
+
+    /// Returns `true` when the reason was decoded from an unknown code.
+    pub const fn is_custom(self) -> bool {
+        matches!(self, FaultRecoveryReason::Custom(_))
     }
 }
 
@@ -253,5 +324,46 @@ fn sequence_from_index(index: u16) -> Option<StrapSequenceKind> {
         2 => Some(StrapSequenceKind::RecoveryImmediate),
         3 => Some(StrapSequenceKind::FaultRecovery),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fault_recovery_reason_round_trip() {
+        let fixtures = [
+            (FaultRecoveryReason::ManualRequest, 0x00),
+            (FaultRecoveryReason::BrownOutDetected, 0x01),
+            (FaultRecoveryReason::ControlLinkLost, 0x02),
+            (FaultRecoveryReason::ConsoleWatchdogTimeout, 0x03),
+            (FaultRecoveryReason::Custom(0xA5), 0xA5),
+        ];
+
+        for (reason, code) in fixtures {
+            assert_eq!(reason.to_raw(), code);
+            match reason {
+                FaultRecoveryReason::Custom(_) => {
+                    let decoded = FaultRecoveryReason::from_raw(code);
+                    assert!(decoded.is_custom());
+                    assert_eq!(decoded.to_raw(), code);
+                }
+                _ => assert_eq!(FaultRecoveryReason::from_raw(code), reason),
+            }
+        }
+    }
+
+    #[test]
+    fn sequence_telemetry_attaches_fault_details() {
+        let base = SequenceTelemetry::new(SequenceOutcome::Completed, None, 2);
+        assert!(base.fault.is_none());
+
+        let details =
+            FaultRecoveryTelemetry::new(FaultRecoveryReason::ManualRequest, /* retries */ 1);
+        let telemetry = base.with_fault(details);
+
+        assert_eq!(telemetry.fault, Some(details));
+        assert_eq!(telemetry.events_recorded, 2);
     }
 }

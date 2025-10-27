@@ -30,6 +30,8 @@ pub struct CommandFlags {
     pub force_recovery: bool,
     /// Optional delay before the orchestrator may start executing the command.
     pub start_after: Option<Duration>,
+    /// Optional retry budget override for sequences that support retries.
+    pub retry_override: Option<u8>,
 }
 
 /// Strap sequence request waiting to be processed by the orchestrator.

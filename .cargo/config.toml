@@ -3,7 +3,7 @@
 runner = "probe-rs run --chip stm32g0b1ketx"
 
 [build]
-target = "thumbv6m-none-eabi"
+#target = "thumbv6m-none-eabi"
 
 [unstable]
 build-std = ["core"]

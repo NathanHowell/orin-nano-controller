@@ -9,13 +9,14 @@ use controller_core::orchestrator::{
     SequenceScheduler,
 };
 use controller_core::repl::commands::{
-    CommandError, CommandExecutor, CommandOutcome, RebootAck, RecoveryAck,
+    CommandError, CommandExecutor, CommandOutcome, FaultAck, RebootAck, RecoveryAck,
 };
 use controller_core::repl::grammar::RecoveryCommand;
 use controller_core::sequences::{
     SequenceTemplate, StepCompletion, StrapAction, StrapSequenceKind, StrapStep,
-    recovery_entry_template, recovery_immediate_template,
+    fault_recovery_template, recovery_entry_template, recovery_immediate_template,
 };
+use controller_core::sequences::fault::FAULT_RECOVERY_MAX_RETRIES;
 
 const DEFAULT_QUEUE_DEPTH: usize = 4;
 
@@ -98,6 +99,9 @@ impl Session {
             templates
                 .register(recovery_immediate_template())
                 .expect("register RecoveryImmediate template");
+            templates
+                .register(fault_recovery_template())
+                .expect("register FaultRecovery template");
         }
         let executor = CommandExecutor::new(scheduler);
 
@@ -130,6 +134,7 @@ impl Session {
         match self.executor.execute(trimmed, now, CommandSource::UsbHost) {
             Ok(CommandOutcome::Reboot(ack)) => self.handle_reboot(ack, elapsed),
             Ok(CommandOutcome::Recovery(ack)) => self.handle_recovery(ack, elapsed),
+            Ok(CommandOutcome::Fault(ack)) => self.handle_fault(ack, elapsed),
             Err(CommandError::Parse(err)) => {
                 let message = format!("ERR syntax {err}");
                 let lines = vec![message];
@@ -252,6 +257,48 @@ impl Session {
                 )
             }
         }
+    }
+
+    fn handle_fault(
+        &mut self,
+        ack: FaultAck<HostInstant>,
+        elapsed: Duration,
+    ) -> io::Result<Vec<String>> {
+        let default_budget = {
+            let scheduler = self.executor.scheduler();
+            scheduler
+                .templates()
+                .get(ack.sequence)
+                .and_then(|template| template.max_retries)
+                .unwrap_or(FAULT_RECOVERY_MAX_RETRIES)
+        };
+        let override_used = ack.retry_budget != default_budget;
+
+        self.handle_sequence(
+            "fault recover",
+            ack.sequence,
+            ack.requested_at,
+            Duration::ZERO,
+            elapsed,
+            |summary| {
+                let head = format!(
+                    "OK fault recover seq={} at=+{}ms retries={}",
+                    summary.sequence_id,
+                    summary.request_offset.as_millis(),
+                    ack.retry_budget
+                );
+
+                if override_used {
+                    let note = format!(
+                        "retry override applied (default {})",
+                        default_budget
+                    );
+                    SequenceNarration::with_notes(head, vec![note])
+                } else {
+                    SequenceNarration::new(head)
+                }
+            },
+        )
     }
 
     fn record_output(&mut self, elapsed: Duration, lines: &[String]) -> io::Result<()> {

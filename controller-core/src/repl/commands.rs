@@ -10,7 +10,7 @@ use core::time::Duration;
 use crate::orchestrator::{
     CommandFlags, CommandQueueProducer, CommandSource, ScheduleError, SequenceScheduler,
 };
-use crate::sequences::StrapSequenceKind;
+use crate::sequences::{fault::FAULT_RECOVERY_MAX_RETRIES, StrapSequenceKind};
 
 use super::grammar::{self, Command, RebootCommand, RecoveryCommand};
 
@@ -19,6 +19,7 @@ use super::grammar::{self, Command, RebootCommand, RecoveryCommand};
 pub enum CommandOutcome<Instant> {
     Reboot(RebootAck<Instant>),
     Recovery(RecoveryAck<Instant>),
+    Fault(FaultAck<Instant>),
 }
 
 /// Summary returned after queueing a reboot command.
@@ -34,6 +35,14 @@ pub struct RecoveryAck<Instant> {
     pub requested_at: Instant,
     pub sequence: StrapSequenceKind,
     pub command: RecoveryCommand,
+}
+
+/// Summary returned after queueing a fault recovery command.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FaultAck<Instant> {
+    pub requested_at: Instant,
+    pub sequence: StrapSequenceKind,
+    pub retry_budget: u8,
 }
 
 /// Errors surfaced while executing a command.
@@ -68,6 +77,11 @@ type RebootResult<S> = Result<
 
 type RecoveryResult<S> = Result<
     RecoveryAck<<S as SequenceEnqueuer>::Instant>,
+    ScheduleError<<S as SequenceEnqueuer>::Error, <S as SequenceEnqueuer>::Instant>,
+>;
+
+type FaultResult<S> = Result<
+    FaultAck<<S as SequenceEnqueuer>::Instant>,
     ScheduleError<<S as SequenceEnqueuer>::Error, <S as SequenceEnqueuer>::Instant>,
 >;
 
@@ -164,7 +178,19 @@ where
                 .handle_recovery(action, now, source)
                 .map(CommandOutcome::Recovery)
                 .map_err(CommandError::Schedule),
-            Command::Fault(_) => Err(CommandError::Unsupported("fault")),
+            Command::Fault(action) => {
+                let retries = match action.retries {
+                    Some(0) => return Err(CommandError::Unsupported("fault retries must be 1-3")),
+                    Some(value) if value > FAULT_RECOVERY_MAX_RETRIES => {
+                        return Err(CommandError::Unsupported("fault retries must be 1-3"));
+                    }
+                    other => other,
+                };
+
+                self.handle_fault(retries, now, source)
+                    .map(CommandOutcome::Fault)
+                    .map_err(CommandError::Schedule)
+            }
             Command::Status => Err(CommandError::Unsupported("status")),
             Command::Help(_) => Err(CommandError::Unsupported("help")),
         }
@@ -222,6 +248,32 @@ where
             command: action,
         })
     }
+
+    fn handle_fault(
+        &mut self,
+        retry_override: Option<u8>,
+        now: S::Instant,
+        source: CommandSource,
+    ) -> FaultResult<S> {
+        let retry_budget = match retry_override {
+            Some(value) => value,
+            None => FAULT_RECOVERY_MAX_RETRIES,
+        };
+
+        let mut flags = CommandFlags::default();
+        if retry_override.is_some() {
+            flags.retry_override = Some(retry_budget);
+        }
+
+        self.scheduler
+            .enqueue_sequence(StrapSequenceKind::FaultRecovery, now, source, flags)?;
+
+        Ok(FaultAck {
+            requested_at: now,
+            sequence: StrapSequenceKind::FaultRecovery,
+            retry_budget,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -229,7 +281,9 @@ mod tests {
     use super::*;
     use crate::orchestrator::{CommandEnqueueError, CommandQueueProducer};
     use crate::orchestrator::{CommandSource, SequenceCommand};
-    use crate::sequences::{recovery_entry_template, recovery_immediate_template};
+    use crate::sequences::{
+        fault_recovery_template, recovery_entry_template, recovery_immediate_template,
+    };
     use core::ops::Add;
     use core::time::Duration;
     use heapless::Vec as HeaplessVec;
@@ -307,6 +361,9 @@ mod tests {
             templates
                 .register(recovery_immediate_template())
                 .expect("register RecoveryImmediate template");
+            templates
+                .register(fault_recovery_template())
+                .expect("register FaultRecovery template");
         }
         CommandExecutor::new(scheduler)
     }
@@ -460,5 +517,65 @@ mod tests {
         let commands = executor.scheduler().producer().commands();
         assert_eq!(commands.len(), 1);
         assert_eq!(commands[0].kind, StrapSequenceKind::NormalReboot);
+    }
+
+    #[test]
+    fn fault_recover_enqueues_with_default_budget() {
+        let mut executor = executor_with_capacity(4);
+        let now = MockInstant::micros(8_000);
+
+        let outcome = executor
+            .execute("fault recover", now, CommandSource::UsbHost)
+            .expect("dispatch should succeed");
+
+        assert_eq!(
+            outcome,
+            CommandOutcome::Fault(FaultAck {
+                requested_at: now,
+                sequence: StrapSequenceKind::FaultRecovery,
+                retry_budget: FAULT_RECOVERY_MAX_RETRIES,
+            })
+        );
+
+        let commands = executor.scheduler().producer().commands();
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].kind, StrapSequenceKind::FaultRecovery);
+        assert_eq!(commands[0].flags.retry_override, None);
+    }
+
+    #[test]
+    fn fault_recover_accepts_retry_override() {
+        let mut executor = executor_with_capacity(4);
+        let now = MockInstant::micros(9_000);
+
+        let outcome = executor
+            .execute("fault recover retries=2", now, CommandSource::UsbHost)
+            .expect("dispatch should succeed");
+
+        assert_eq!(
+            outcome,
+            CommandOutcome::Fault(FaultAck {
+                requested_at: now,
+                sequence: StrapSequenceKind::FaultRecovery,
+                retry_budget: 2,
+            })
+        );
+
+        let commands = executor.scheduler().producer().commands();
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].kind, StrapSequenceKind::FaultRecovery);
+        assert_eq!(commands[0].flags.retry_override, Some(2));
+    }
+
+    #[test]
+    fn fault_recover_rejects_out_of_range_retry_override() {
+        let mut executor = executor_with_capacity(4);
+        let now = MockInstant::micros(10_000);
+
+        let error = executor
+            .execute("fault recover retries=5", now, CommandSource::UsbHost)
+            .expect_err("retry override exceeding template should fail");
+
+        assert_eq!(error, CommandError::Unsupported("fault retries must be 1-3"));
     }
 }

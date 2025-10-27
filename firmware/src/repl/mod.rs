@@ -20,7 +20,8 @@ use controller_core::orchestrator::{
 };
 #[cfg(target_os = "none")]
 use controller_core::repl::commands::{
-    CommandError as ExecutorError, CommandExecutor, CommandOutcome, RebootAck, RecoveryAck,
+    CommandError as ExecutorError, CommandExecutor, CommandOutcome, FaultAck, RebootAck,
+    RecoveryAck,
 };
 #[cfg(target_os = "none")]
 use controller_core::sequences::StrapSequenceKind;
@@ -227,6 +228,7 @@ impl<'a> ReplSession<'a> {
         match outcome {
             CommandOutcome::Reboot(ack) => format_reboot_ack(&mut message, ack),
             CommandOutcome::Recovery(ack) => format_recovery_ack(&mut message, ack),
+            CommandOutcome::Fault(ack) => format_fault_ack(&mut message, ack),
         }
 
         if message.is_empty() {
@@ -303,6 +305,12 @@ fn format_reboot_ack(buffer: &mut String<FRAME_CAPACITY>, ack: RebootAck<Firmwar
 fn format_recovery_ack(buffer: &mut String<FRAME_CAPACITY>, ack: RecoveryAck<FirmwareInstant>) {
     let _ = buffer.push_str("OK recovery");
     let _ = write!(buffer, " sequence={:?}", ack.sequence);
+}
+
+#[cfg(target_os = "none")]
+fn format_fault_ack(buffer: &mut String<FRAME_CAPACITY>, ack: FaultAck<FirmwareInstant>) {
+    let _ = buffer.push_str("OK fault recover");
+    let _ = write!(buffer, " retries={}", ack.retry_budget);
 }
 
 #[cfg(target_os = "none")]
