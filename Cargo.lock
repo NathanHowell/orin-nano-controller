@@ -177,15 +177,6 @@ dependencies = [
 
 [[package]]
 name = "defmt"
-version = "0.3.100"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0963443817029b2024136fc4dd07a5107eb8f977eaf18fcd1fdeb11306b64ad"
-dependencies = [
- "defmt 1.0.1",
-]
-
-[[package]]
-name = "defmt"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "548d977b6da32fa1d1fda2876453da1e7df63ad0304c8b3dae4dbe7b96f39b78"
@@ -233,7 +224,7 @@ checksum = "554e3e840696f54b4c9afcf28a0f24da431c927f4151040020416e7393d6d0d8"
 dependencies = [
  "embassy-futures",
  "embassy-hal-internal",
- "embassy-sync 0.7.2",
+ "embassy-sync",
  "embassy-time",
  "embedded-hal 0.2.7",
  "embedded-hal 1.0.0",
@@ -305,7 +296,7 @@ checksum = "b7b2739fbcf6cd206ae08779c7d709087b16577d255f2ea4a45bc4bbbf305b3f"
 dependencies = [
  "embassy-futures",
  "embassy-net-driver",
- "embassy-sync 0.7.2",
+ "embassy-sync",
 ]
 
 [[package]]
@@ -327,11 +318,11 @@ dependencies = [
  "embassy-futures",
  "embassy-hal-internal",
  "embassy-net-driver",
- "embassy-sync 0.7.2",
+ "embassy-sync",
  "embassy-time",
  "embassy-time-driver",
  "embassy-time-queue-utils",
- "embassy-usb-driver 0.2.0",
+ "embassy-usb-driver",
  "embassy-usb-synopsys-otg",
  "embedded-can",
  "embedded-hal 0.2.7",
@@ -354,20 +345,6 @@ dependencies = [
  "stm32-metapac",
  "vcell",
  "volatile-register",
-]
-
-[[package]]
-name = "embassy-sync"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d2c8cdff05a7a51ba0087489ea44b0b1d97a296ca6b1d6d1a33ea7423d34049"
-dependencies = [
- "cfg-if",
- "critical-section",
- "embedded-io-async",
- "futures-sink",
- "futures-util",
- "heapless",
 ]
 
 [[package]]
@@ -421,24 +398,16 @@ dependencies = [
 
 [[package]]
 name = "embassy-usb"
-version = "0.3.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d0b882133fa684b9d4652351cd7aac5afe8a2c2bf4a7da59f442ff61087cda2"
+checksum = "dc4462e48b19a4f401a11901bdd981aab80c6a826608016a0bdc73cbbab31954"
 dependencies = [
  "embassy-futures",
  "embassy-net-driver-channel",
- "embassy-sync 0.6.2",
- "embassy-usb-driver 0.1.1",
- "heapless",
-]
-
-[[package]]
-name = "embassy-usb-driver"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "340c5ce591ef58c6449e43f51d2c53efe1bf0bb6a40cbf80afa0d259c7d52c76"
-dependencies = [
+ "embassy-sync",
+ "embassy-usb-driver",
  "embedded-io-async",
+ "heapless",
 ]
 
 [[package]]
@@ -457,8 +426,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "288751f8eaa44a5cf2613f13cee0ca8e06e6638cb96e897e6834702c79084b23"
 dependencies = [
  "critical-section",
- "embassy-sync 0.7.2",
- "embassy-usb-driver 0.2.0",
+ "embassy-sync",
+ "embassy-usb-driver",
 ]
 
 [[package]]
@@ -672,16 +641,14 @@ dependencies = [
  "controller-core",
  "cortex-m",
  "cortex-m-rt",
- "defmt 0.3.100",
+ "defmt",
  "embassy-executor",
  "embassy-stm32",
- "embassy-sync 0.7.2",
+ "embassy-sync",
  "embassy-time",
  "embassy-usb",
  "heapless",
- "logos",
  "panic-halt",
- "winnow",
 ]
 
 [[package]]
