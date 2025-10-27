@@ -3,8 +3,6 @@
 //! The line editor can invoke this module to look up suggestions based on the
 //! current buffer contents and cursor position without pulling in `std`.
 
-use core::cmp::min;
-
 use heapless::Vec as HeaplessVec;
 
 const MAX_CONTEXT_TOKENS: usize = 4;
@@ -18,15 +16,13 @@ const FAULT_RETRY_VALUES: &[&str] = &["retries=1", "retries=2", "retries=3"];
 
 /// Completion result returned to the caller.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CompletionResult {
-    /// No suggestions available for the current context.
-    NoMatch,
-    /// Suggestions were found; the editor may apply `replacement` and/or
-    /// display the candidate list to the user.
-    Suggestions {
-        replacement: Option<Replacement>,
-        options: HeaplessVec<&'static str, MAX_SUGGESTIONS>,
-    },
+pub struct CompletionResult {
+    /// Replacement metadata to apply automatically when only one candidate
+    /// matches or when a longer shared prefix exists across candidates.
+    pub replacement: Option<Replacement>,
+    /// Candidate list corresponding to the current cursor position. An empty
+    /// list indicates that no completions were found.
+    pub options: HeaplessVec<&'static str, MAX_SUGGESTIONS>,
 }
 
 /// Replacement metadata describing which portion of the buffer should be
@@ -55,7 +51,10 @@ impl CompletionEngine {
     /// expected to enforce ASCII-only input.
     pub fn complete(&self, buffer: &str, cursor: usize) -> CompletionResult {
         if cursor > buffer.len() {
-            return CompletionResult::NoMatch;
+            return CompletionResult {
+                replacement: None,
+                options: HeaplessVec::new(),
+            };
         }
 
         let upto_cursor = &buffer[..cursor];
@@ -76,7 +75,12 @@ impl CompletionEngine {
             CompletionContext::FaultKeyword => FAULT_SUBCOMMANDS,
             CompletionContext::FaultRetry => FAULT_RETRY_VALUES,
             CompletionContext::HelpTopic => ROOT_COMMANDS,
-            CompletionContext::None => return CompletionResult::NoMatch,
+            CompletionContext::None => {
+                return CompletionResult {
+                    replacement: None,
+                    options: HeaplessVec::new(),
+                };
+            }
         };
 
         let mut matches: HeaplessVec<&'static str, MAX_SUGGESTIONS> = HeaplessVec::new();
@@ -87,7 +91,10 @@ impl CompletionEngine {
         }
 
         if matches.is_empty() {
-            return CompletionResult::NoMatch;
+            return CompletionResult {
+                replacement: None,
+                options: matches,
+            };
         }
 
         let matches_slice = matches.as_slice();
@@ -105,7 +112,7 @@ impl CompletionEngine {
             value,
         });
 
-        CompletionResult::Suggestions {
+        CompletionResult {
             replacement,
             options: matches,
         }
@@ -154,12 +161,7 @@ fn token_start(buffer: &str) -> usize {
 }
 
 fn equals_ignore_ascii_case(lhs: &str, rhs: &str) -> bool {
-    lhs.len() == rhs.len()
-        && lhs
-            .as_bytes()
-            .iter()
-            .zip(rhs.as_bytes())
-            .all(|(l, r)| l.to_ascii_lowercase() == r.to_ascii_lowercase())
+    lhs.eq_ignore_ascii_case(rhs)
 }
 
 fn starts_with_ignore_ascii_case(candidate: &str, prefix: &str) -> bool {
@@ -167,30 +169,19 @@ fn starts_with_ignore_ascii_case(candidate: &str, prefix: &str) -> bool {
         return true;
     }
 
-    let prefix_bytes = prefix.as_bytes();
-    let candidate_bytes = candidate.as_bytes();
-    if prefix_bytes.len() > candidate_bytes.len() {
+    if prefix.len() > candidate.len() {
         return false;
     }
 
-    prefix_bytes
-        .iter()
-        .zip(candidate_bytes)
-        .all(|(p, c)| p.to_ascii_lowercase() == c.to_ascii_lowercase())
+    candidate[..prefix.len()].eq_ignore_ascii_case(prefix)
 }
 
 fn common_prefix_len_ignore_case(lhs: &str, rhs: &str) -> usize {
-    let lhs_bytes = lhs.as_bytes();
-    let rhs_bytes = rhs.as_bytes();
-    let limit = min(lhs_bytes.len(), rhs_bytes.len());
-    let mut index = 0usize;
-    while index < limit {
-        if lhs_bytes[index].to_ascii_lowercase() != rhs_bytes[index].to_ascii_lowercase() {
-            break;
-        }
-        index += 1;
-    }
-    index
+    lhs.as_bytes()
+        .iter()
+        .zip(rhs.as_bytes())
+        .take_while(|(l, r)| l.eq_ignore_ascii_case(r))
+        .count()
 }
 
 fn longest_common_prefix(candidates: &[&'static str]) -> &'static str {
@@ -219,13 +210,11 @@ mod tests {
         Option<Replacement>,
         HeaplessVec<&'static str, MAX_SUGGESTIONS>,
     ) {
-        match result {
-            CompletionResult::Suggestions {
-                replacement,
-                options,
-            } => (replacement, options),
-            CompletionResult::NoMatch => panic!("expected suggestions but got no match"),
-        }
+        assert!(
+            !result.options.is_empty(),
+            "expected suggestions but got no match"
+        );
+        (result.replacement, result.options)
     }
 
     #[test]

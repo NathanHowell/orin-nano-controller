@@ -253,50 +253,48 @@ impl<'a> ReplSession<'a> {
 
         let cursor = text.len();
         let completion = self.completion.complete(text, cursor);
-        match completion {
-            CompletionResult::NoMatch => self.emit_bell().await,
-            CompletionResult::Suggestions {
-                replacement,
-                options,
-            } => {
-                let option_count = options.len();
-                if option_count == 0 {
-                    self.emit_bell().await;
-                    return;
-                }
+        let CompletionResult {
+            replacement,
+            options,
+        } = completion;
 
-                if option_count == 1 {
-                    let Some(replacement) = replacement else {
-                        self.emit_bell().await;
-                        return;
-                    };
+        let mut options = options;
+        if options.is_empty() {
+            self.emit_bell().await;
+            return;
+        }
 
-                    if replacement.end != cursor || replacement.start > replacement.end {
-                        self.emit_bell().await;
-                        return;
-                    }
+        let option_count = options.len();
+        if option_count == 1 {
+            let Some(replacement) = replacement else {
+                self.emit_bell().await;
+                return;
+            };
 
-                    let removal = replacement.end - replacement.start;
-                    if let Err(LineError::Overflow) = self
-                        .buffer
-                        .replace_from(replacement.start, replacement.value)
-                    {
-                        self.drop_input = true;
-                        self.notify_error("ERR line-too-long").await;
-                        return;
-                    }
-
-                    self.echo_backspaces(removal).await;
-                    self.echo_bytes(replacement.value.as_bytes()).await;
-                } else {
-                    let mut snapshot: Vec<u8, MAX_LINE_LEN> = Vec::new();
-                    if snapshot.extend_from_slice(self.buffer.as_slice()).is_err() {
-                        return;
-                    }
-                    self.emit_suggestions(options.as_slice()).await;
-                    self.echo_bytes(snapshot.as_slice()).await;
-                }
+            if replacement.end != cursor || replacement.start > replacement.end {
+                self.emit_bell().await;
+                return;
             }
+
+            let removal = replacement.end - replacement.start;
+            if let Err(LineError::Overflow) = self
+                .buffer
+                .replace_from(replacement.start, replacement.value)
+            {
+                self.drop_input = true;
+                self.notify_error("ERR line-too-long").await;
+                return;
+            }
+
+            self.echo_backspaces(removal).await;
+            self.echo_bytes(replacement.value.as_bytes()).await;
+        } else {
+            let mut snapshot: Vec<u8, MAX_LINE_LEN> = Vec::new();
+            if snapshot.extend_from_slice(self.buffer.as_slice()).is_err() {
+                return;
+            }
+            self.emit_suggestions(options.as_slice()).await;
+            self.echo_bytes(snapshot.as_slice()).await;
         }
     }
 
