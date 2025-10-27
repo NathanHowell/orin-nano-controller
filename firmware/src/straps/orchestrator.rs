@@ -180,7 +180,7 @@ mod tests {
     use crate::straps::FirmwareInstant;
     use crate::straps::{CommandQueue, StrapId};
     use controller_core::orchestrator::CommandSource;
-    use controller_core::sequences::normal_reboot_template;
+    use controller_core::sequences::{fault_recovery_template, normal_reboot_template};
     use embassy_time::{Duration, Instant};
 
     #[test]
@@ -289,6 +289,31 @@ mod tests {
             _ => panic!("expected sequence payload"),
         }
     }
+
+    #[test]
+    fn retry_budget_prefers_command_override() {
+        let queue = CommandQueue::new();
+        let mut orchestrator = StrapOrchestrator::new(queue.receiver());
+
+        orchestrator
+            .templates_mut()
+            .register(fault_recovery_template())
+            .expect("register fault recovery template");
+
+        let mut command = SequenceCommand::new(
+            StrapSequenceKind::FaultRecovery,
+            FirmwareInstant::from(Instant::from_micros(0)),
+            CommandSource::UsbHost,
+        );
+        command.flags.retry_override = Some(2);
+
+        let template = orchestrator
+            .templates()
+            .get(StrapSequenceKind::FaultRecovery)
+            .expect("fault recovery template missing");
+
+        assert_eq!(retry_budget_for(&command, template), 2);
+    }
 }
 
 #[cfg(target_os = "none")]
@@ -395,6 +420,13 @@ fn remaining_delay(queued: &QueuedCommand) -> Option<Duration> {
             Some(deadline.saturating_duration_since(now))
         }
     })
+}
+
+fn retry_budget_for(command: &SequenceCommand, template: &SequenceTemplate) -> u8 {
+    command
+        .flags
+        .retry_override
+        .unwrap_or_else(|| template.max_retries.unwrap_or(DEFAULT_BROWN_OUT_RETRIES))
 }
 
 const DEFAULT_BROWN_OUT_RETRIES: u8 = 1;
@@ -1188,9 +1220,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
         sample: PowerSample,
         telemetry: &mut TelemetryRecorder,
     ) -> bool {
-        let (retry_budget, retries_used, attempt);
-
-        {
+        let (retry_budget, retries_used, did_retry, attempt) = {
             let Some(run) = self.active_run.as_mut() else {
                 return false;
             };
@@ -1200,21 +1230,32 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
                 return false;
             };
 
-            retry_budget = template.max_retries.unwrap_or(DEFAULT_BROWN_OUT_RETRIES);
-            retries_used = run.retry_count;
+            let retry_budget = retry_budget_for(&run.command, template);
+            let retries_used = run.retry_count;
+            let mut attempt = run.retry_count;
+            let mut did_retry = false;
 
-            log_brown_out_detected(&sample, retries_used, retry_budget);
-
-            if retries_used >= retry_budget {
-                log_retry_exhausted(retry_budget);
-                let _ = self.fail_run(SequenceError::RetryLimitExceeded);
-                return false;
+            if retries_used < retry_budget {
+                run.begin_retry();
+                attempt = run.retry_count;
+                did_retry = true;
             }
 
-            run.begin_retry();
-            attempt = run.retry_count;
-            log_retry_started(attempt, retry_budget);
+            (retry_budget, retries_used, did_retry, attempt)
+        };
+
+        log_brown_out_detected(&sample, retries_used, retry_budget);
+
+        let release_timestamp = Instant::now();
+        self.release_all_straps(telemetry, release_timestamp);
+
+        if !did_retry {
+            log_retry_exhausted(retry_budget);
+            let _ = self.fail_run(SequenceError::RetryLimitExceeded);
+            return false;
         }
+
+        log_retry_started(attempt, retry_budget);
 
         self.recovering_power = true;
         self.await_power_recovery(telemetry, attempt).await;
