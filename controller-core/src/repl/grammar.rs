@@ -266,10 +266,7 @@ pub fn lex(line: &str) -> Result<TokenBuffer<'_>, LexError> {
         count += 1;
         let span = lexer.span();
         let lexeme = lexer.slice();
-        let kind = match result {
-            Ok(kind) => kind,
-            Err(_) => TokenKind::Error,
-        };
+        let kind = result.unwrap_or(TokenKind::Error);
 
         if buffer.push(Token { kind, lexeme, span }).is_err() {
             return Err(LexError::TooManyTokens { processed: count });

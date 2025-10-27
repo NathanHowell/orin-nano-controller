@@ -255,10 +255,7 @@ where
         now: S::Instant,
         source: CommandSource,
     ) -> FaultResult<S> {
-        let retry_budget = match retry_override {
-            Some(value) => value,
-            None => FAULT_RECOVERY_MAX_RETRIES,
-        };
+        let retry_budget = retry_override.unwrap_or(FAULT_RECOVERY_MAX_RETRIES);
 
         let mut flags = CommandFlags::default();
         if retry_override.is_some() {
