@@ -12,11 +12,11 @@ use controller_core::repl::commands::{
     CommandError, CommandExecutor, CommandOutcome, FaultAck, RebootAck, RecoveryAck,
 };
 use controller_core::repl::grammar::RecoveryCommand;
+use controller_core::sequences::fault::FAULT_RECOVERY_MAX_RETRIES;
 use controller_core::sequences::{
     SequenceTemplate, StepCompletion, StrapAction, StrapSequenceKind, StrapStep,
     fault_recovery_template, recovery_entry_template, recovery_immediate_template,
 };
-use controller_core::sequences::fault::FAULT_RECOVERY_MAX_RETRIES;
 
 const DEFAULT_QUEUE_DEPTH: usize = 4;
 
@@ -289,10 +289,7 @@ impl Session {
                 );
 
                 if override_used {
-                    let note = format!(
-                        "retry override applied (default {})",
-                        default_budget
-                    );
+                    let note = format!("retry override applied (default {})", default_budget);
                     SequenceNarration::with_notes(head, vec![note])
                 } else {
                     SequenceNarration::new(head)

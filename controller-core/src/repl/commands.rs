@@ -10,7 +10,7 @@ use core::time::Duration;
 use crate::orchestrator::{
     CommandFlags, CommandQueueProducer, CommandSource, ScheduleError, SequenceScheduler,
 };
-use crate::sequences::{fault::FAULT_RECOVERY_MAX_RETRIES, StrapSequenceKind};
+use crate::sequences::{StrapSequenceKind, fault::FAULT_RECOVERY_MAX_RETRIES};
 
 use super::grammar::{self, Command, RebootCommand, RecoveryCommand};
 
@@ -576,6 +576,9 @@ mod tests {
             .execute("fault recover retries=5", now, CommandSource::UsbHost)
             .expect_err("retry override exceeding template should fail");
 
-        assert_eq!(error, CommandError::Unsupported("fault retries must be 1-3"));
+        assert_eq!(
+            error,
+            CommandError::Unsupported("fault retries must be 1-3")
+        );
     }
 }
