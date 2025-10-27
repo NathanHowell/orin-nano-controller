@@ -70,6 +70,7 @@ IMPORTANT: please refer to existing `firmware` code for reusable logic that can 
 - [X] T016 [P] [US1] Implement `reboot now|delay` parsing and command dispatch in `controller-core/src/repl/commands.rs`.
 - [X] T017 [P] [US1] Add host-side unit tests covering `NormalReboot` durations in `controller-core/tests/normal_reboot.rs`.
 - [X] T018 [P] [US1] Bind controller-core strap operations to STM32 pins with defmt telemetry in `firmware/src/straps/orchestrator.rs`.
+- [ ] T048 [US1] Wire the firmware REPL plumbing by connecting `usb_task` to CDC0, invoking `ReplSession` from `repl_task`, and routing parsed commands into `COMMAND_QUEUE` in `firmware/src/main.rs`.
 - [X] T019 [P] [US1] Expose a reboot command in the emulator session and log parity transcripts to `emulator/src/session.rs` and `specs/001-build-orin-controller/evidence/emulator-reboot.log`.
 - [ ] T020 [US1] Capture the normal reboot logic analyzer trace at `specs/001-build-orin-controller/evidence/normal-reboot.sal`.
 - [ ] T021 [US1] Record queue serialization defmt output for overlapping reboot commands in `specs/001-build-orin-controller/evidence/queue-serialization.log`.
@@ -91,6 +92,7 @@ IMPORTANT: please refer to existing `firmware` code for reusable logic that can 
 - [X] T024 [US2] Implement `RecoveryEntry` and `RecoveryImmediate` templates with pre/post REC windows in `controller-core/src/sequences/recovery.rs`.
 - [X] T025 [P] [US2] Extend orchestrator logic to hold REC until bridge activity or timeout in `controller-core/src/orchestrator/mod.rs`.
 - [X] T026 [P] [US2] Publish bridge activity telemetry hooks driving REC release in `firmware/src/bridge/mod.rs`.
+- [ ] T049 [P] [US2] Complete the STM32 USB/UART bridge by extending `usb_task` for dual CDC interfaces and implementing bidirectional transfer loops in `bridge_task` within `firmware/src/main.rs`.
 - [X] T027 [P] [US2] Implement `recovery enter|exit|now` parsing with grammar validation in `controller-core/src/repl/commands.rs`.
 - [X] T028 [P] [US2] Mirror recovery workflows in the emulator and archive transcripts in `emulator/src/session.rs` and `specs/001-build-orin-controller/evidence/emulator-recovery.log`.
 - [ ] T029 [US2] Capture recovery strap trace and USB host log at `specs/001-build-orin-controller/evidence/recovery-entry.sal` and `specs/001-build-orin-controller/evidence/recovery-usb.log`.
@@ -113,6 +115,7 @@ IMPORTANT: please refer to existing `firmware` code for reusable logic that can 
 - [ ] T033 [P] [US3] Extend telemetry to log fault recovery reason codes and retry counts in `controller-core/src/telemetry/mod.rs`.
 - [ ] T034 [P] [US3] Implement `fault recover retries=` parsing and command dispatch in `controller-core/src/repl/commands.rs`.
 - [ ] T035 [P] [US3] Integrate APO control and retry loop handling in `firmware/src/straps/orchestrator.rs`.
+- [ ] T050 [P] [US3] Finalize firmware task coordination by sharing telemetry/command state across `strap_task`, `repl_task`, and `bridge_task` to support fault recovery retries in `firmware/src/main.rs`.
 - [ ] T036 [P] [US3] Add emulator fault recovery parity logging to `emulator/src/session.rs` and `specs/001-build-orin-controller/evidence/emulator-fault.log`.
 - [ ] T037 [US3] Capture fault recovery strap trace and SWD checklist at `specs/001-build-orin-controller/evidence/fault-recovery.sal` and `specs/001-build-orin-controller/evidence/fault-recovery-notes.md`.
 - [ ] T038 [US3] Document field recovery workflow and SWD fallback steps in `specs/001-build-orin-controller/quickstart.md` and `specs/001-build-orin-controller/spec.md`.
