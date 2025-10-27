@@ -24,6 +24,8 @@ use controller_core::repl::commands::{
     RecoveryAck,
 };
 #[cfg(target_os = "none")]
+use controller_core::repl::completion::{CompletionEngine, CompletionResult};
+#[cfg(target_os = "none")]
 use controller_core::sequences::StrapSequenceKind;
 #[cfg(target_os = "none")]
 use core::fmt::Write as _;
@@ -129,6 +131,19 @@ impl LineBuffer {
     pub fn as_slice(&self) -> &[u8] {
         self.buf.as_slice()
     }
+
+    /// Replaces the tail of the buffer starting at `start` with the provided
+    /// `replacement`.
+    pub fn replace_from(&mut self, start: usize, replacement: &str) -> Result<(), LineError> {
+        if start > self.buf.len() {
+            return Err(LineError::Overflow);
+        }
+
+        self.buf.truncate(start);
+        self.buf
+            .extend_from_slice(replacement.as_bytes())
+            .map_err(|_| LineError::Overflow)
+    }
 }
 
 #[cfg(target_os = "none")]
@@ -148,6 +163,7 @@ pub struct ReplSession<'a> {
     tx: ReplSender<'a>,
     executor: FirmwareExecutor<'a>,
     buffer: LineBuffer,
+    completion: CompletionEngine,
     drop_input: bool,
 }
 
@@ -160,6 +176,7 @@ impl<'a> ReplSession<'a> {
             tx: REPL_TX_QUEUE.sender(),
             executor,
             buffer: LineBuffer::new(),
+            completion: CompletionEngine::new(),
             drop_input: false,
         }
     }
@@ -188,6 +205,11 @@ impl<'a> ReplSession<'a> {
                 b'\x08' | b'\x7f' => {
                     if !self.buffer.is_empty() {
                         self.buffer.pop();
+                    }
+                }
+                b'\t' => {
+                    if !self.drop_input {
+                        self.handle_completion().await;
                     }
                 }
                 byte if byte.is_ascii() && !self.drop_input => {
@@ -219,6 +241,62 @@ impl<'a> ReplSession<'a> {
         match result {
             Ok(outcome) => self.notify_success(outcome).await,
             Err(err) => self.notify_execution_error(err, now).await,
+        }
+    }
+
+    async fn handle_completion(&mut self) {
+        let buffer = self.buffer.as_slice();
+        let Ok(text) = core::str::from_utf8(buffer) else {
+            self.emit_bell().await;
+            return;
+        };
+
+        let cursor = text.len();
+        let completion = self.completion.complete(text, cursor);
+        match completion {
+            CompletionResult::NoMatch => self.emit_bell().await,
+            CompletionResult::Suggestions {
+                replacement,
+                options,
+            } => {
+                let option_count = options.len();
+                if option_count == 0 {
+                    self.emit_bell().await;
+                    return;
+                }
+
+                if option_count == 1 {
+                    let Some(replacement) = replacement else {
+                        self.emit_bell().await;
+                        return;
+                    };
+
+                    if replacement.end != cursor || replacement.start > replacement.end {
+                        self.emit_bell().await;
+                        return;
+                    }
+
+                    let removal = replacement.end - replacement.start;
+                    if let Err(LineError::Overflow) = self
+                        .buffer
+                        .replace_from(replacement.start, replacement.value)
+                    {
+                        self.drop_input = true;
+                        self.notify_error("ERR line-too-long").await;
+                        return;
+                    }
+
+                    self.echo_backspaces(removal).await;
+                    self.echo_bytes(replacement.value.as_bytes()).await;
+                } else {
+                    let mut snapshot: Vec<u8, MAX_LINE_LEN> = Vec::new();
+                    if snapshot.extend_from_slice(self.buffer.as_slice()).is_err() {
+                        return;
+                    }
+                    self.emit_suggestions(options.as_slice()).await;
+                    self.echo_bytes(snapshot.as_slice()).await;
+                }
+            }
         }
     }
 
@@ -274,12 +352,56 @@ impl<'a> ReplSession<'a> {
             return;
         }
 
-        let mut frame = ReplFrame::new();
-        if frame.extend_from_slice(message.as_bytes()).is_err() {
+        self.send_bytes(message.as_bytes()).await;
+        self.send_bytes(b"\n").await;
+    }
+
+    async fn send_bytes(&mut self, bytes: &[u8]) {
+        if bytes.is_empty() {
             return;
         }
-        let _ = frame.push(b'\n');
-        self.tx.send(frame).await;
+
+        let mut offset = 0;
+        while offset < bytes.len() {
+            let end = (offset + FRAME_CAPACITY).min(bytes.len());
+            let mut frame = ReplFrame::new();
+            if frame.extend_from_slice(&bytes[offset..end]).is_err() {
+                return;
+            }
+            self.tx.send(frame).await;
+            offset = end;
+        }
+    }
+
+    async fn emit_bell(&mut self) {
+        self.send_bytes(&[0x07]).await;
+    }
+
+    async fn echo_bytes(&mut self, bytes: &[u8]) {
+        self.send_bytes(bytes).await;
+    }
+
+    async fn echo_backspaces(&mut self, count: usize) {
+        if count == 0 {
+            return;
+        }
+
+        let mut remaining = count;
+        let mut scratch = [0u8; FRAME_CAPACITY];
+        while remaining > 0 {
+            let chunk = remaining.min(FRAME_CAPACITY);
+            for byte in &mut scratch[..chunk] {
+                *byte = b'\x08';
+            }
+            self.send_bytes(&scratch[..chunk]).await;
+            remaining -= chunk;
+        }
+    }
+
+    async fn emit_suggestions(&mut self, options: &[&'static str]) {
+        for option in options.iter().copied() {
+            self.send_line(option).await;
+        }
     }
 
     fn execute_command<'line>(

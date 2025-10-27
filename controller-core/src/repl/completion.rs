@@ -96,11 +96,7 @@ impl CompletionEngine {
         } else {
             let lcp = longest_common_prefix(matches_slice);
             let shared = common_prefix_len_ignore_case(prefix, lcp);
-            if lcp.len() > shared {
-                Some(lcp)
-            } else {
-                None
-            }
+            if lcp.len() > shared { Some(lcp) } else { None }
         };
 
         let replacement = replacement_value.map(|value| Replacement {
@@ -177,9 +173,10 @@ fn starts_with_ignore_ascii_case(candidate: &str, prefix: &str) -> bool {
         return false;
     }
 
-    prefix_bytes.iter().zip(candidate_bytes).all(|(p, c)| {
-        p.to_ascii_lowercase() == c.to_ascii_lowercase()
-    })
+    prefix_bytes
+        .iter()
+        .zip(candidate_bytes)
+        .all(|(p, c)| p.to_ascii_lowercase() == c.to_ascii_lowercase())
 }
 
 fn common_prefix_len_ignore_case(lhs: &str, rhs: &str) -> usize {
@@ -216,9 +213,17 @@ fn longest_common_prefix(candidates: &[&'static str]) -> &'static str {
 mod tests {
     use super::*;
 
-    fn expect_options(result: CompletionResult) -> (Option<Replacement>, HeaplessVec<&'static str, MAX_SUGGESTIONS>) {
+    fn expect_options(
+        result: CompletionResult,
+    ) -> (
+        Option<Replacement>,
+        HeaplessVec<&'static str, MAX_SUGGESTIONS>,
+    ) {
         match result {
-            CompletionResult::Suggestions { replacement, options } => (replacement, options),
+            CompletionResult::Suggestions {
+                replacement,
+                options,
+            } => (replacement, options),
             CompletionResult::NoMatch => panic!("expected suggestions but got no match"),
         }
     }
@@ -272,8 +277,7 @@ mod tests {
     #[test]
     fn suggests_fault_retry_values() {
         let engine = CompletionEngine::new();
-        let (replacement, options) =
-            expect_options(engine.complete("fault recover ", 14));
+        let (replacement, options) = expect_options(engine.complete("fault recover ", 14));
         let replacement = replacement.expect("expected retries= prefix");
         assert_eq!(replacement.start, 14);
         assert_eq!(replacement.end, 14);
