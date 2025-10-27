@@ -12,7 +12,7 @@ use embassy_time::{Duration, Instant};
 use heapless::{HistoryBuffer, OldestOrdered};
 
 use crate::straps::{
-    EventId, SequenceOutcome, StrapAction, StrapLineId, StrapSequenceKind, TelemetryEventKind,
+    EventId, SequenceOutcome, StrapAction, StrapId, StrapSequenceKind, TelemetryEventKind,
 };
 
 /// Total number of telemetry entries retained in memory.
@@ -41,7 +41,7 @@ impl TelemetryPayload {
 /// Extra metadata tracked for strap transitions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StrapTelemetry {
-    pub line: StrapLineId,
+    pub line: StrapId,
     pub action: StrapAction,
     pub elapsed_since_previous: Option<Duration>,
 }
@@ -107,7 +107,7 @@ impl TelemetryRecorder {
     /// and emitting a defmt/console log for immediate feedback.
     pub fn record_strap_transition(
         &mut self,
-        line: StrapLineId,
+        line: StrapId,
         action: StrapAction,
         timestamp: Instant,
     ) -> EventId {
@@ -235,7 +235,7 @@ impl Default for TelemetryRecorder {
 }
 
 fn log_strap_transition(
-    line: StrapLineId,
+    line: StrapId,
     action: StrapAction,
     timestamp: Instant,
     elapsed: Option<Duration>,
@@ -278,12 +278,12 @@ fn emit_log(line: &'static str, action: &'static str, timestamp_us: u64, delta_u
     }
 }
 
-const fn strap_line_label(line: StrapLineId) -> &'static str {
+const fn strap_line_label(line: StrapId) -> &'static str {
     match line {
-        StrapLineId::Reset => "RESET*",
-        StrapLineId::Recovery => "REC*",
-        StrapLineId::Power => "PWR*",
-        StrapLineId::Apo => "APO",
+        StrapId::Reset => "RESET*",
+        StrapId::Rec => "REC*",
+        StrapId::Pwr => "PWR*",
+        StrapId::Apo => "APO",
     }
 }
 
@@ -472,7 +472,7 @@ fn emit_sequence_log(
 #[cfg(all(test, not(target_os = "none")))]
 mod tests {
     use super::*;
-    use crate::straps::{SequenceOutcome, StrapAction, StrapLineId, StrapSequenceKind};
+    use crate::straps::{SequenceOutcome, StrapAction, StrapId, StrapSequenceKind};
 
     fn micros(value: u64) -> Instant {
         Instant::from_micros(value)
@@ -482,17 +482,14 @@ mod tests {
     fn records_elapsed_between_strap_events() {
         let mut recorder = TelemetryRecorder::new();
 
-        let id1 = recorder.record_strap_transition(
-            StrapLineId::Reset,
-            StrapAction::AssertLow,
-            micros(100),
-        );
+        let id1 =
+            recorder.record_strap_transition(StrapId::Reset, StrapAction::AssertLow, micros(100));
         assert_eq!(id1, 0);
 
         let first = recorder.latest().copied().unwrap();
         assert_eq!(
             first.event,
-            TelemetryEventKind::StrapAsserted(StrapLineId::Reset)
+            TelemetryEventKind::StrapAsserted(StrapId::Reset)
         );
         match first.details {
             TelemetryPayload::Strap(details) => {
@@ -501,11 +498,8 @@ mod tests {
             _ => panic!("expected strap payload"),
         }
 
-        let id2 = recorder.record_strap_transition(
-            StrapLineId::Reset,
-            StrapAction::ReleaseHigh,
-            micros(250),
-        );
+        let id2 =
+            recorder.record_strap_transition(StrapId::Reset, StrapAction::ReleaseHigh, micros(250));
         assert_eq!(id2, 1);
 
         let second = recorder.latest().copied().unwrap();

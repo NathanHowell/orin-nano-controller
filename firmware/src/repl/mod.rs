@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Lightweight helpers for the firmware REPL transport.
 //!
 //! The embedded target shares its command parser and dispatcher with the
@@ -5,7 +6,31 @@
 //! firmware-specific: a bounded line buffer that copes with the CDC transport
 //! and a couple of convenience types for error handling.
 
+#[cfg(not(target_os = "none"))]
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+#[cfg(target_os = "none")]
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::channel::Channel;
 use heapless::Vec;
+
+/// Capacity for USB CDC frames exchanged with the REPL task.
+pub const FRAME_CAPACITY: usize = 64;
+
+/// Queue depth for REPL RX/TX channels.
+pub const FRAME_QUEUE_DEPTH: usize = 4;
+
+#[cfg(target_os = "none")]
+type ReplMutex = ThreadModeRawMutex;
+#[cfg(not(target_os = "none"))]
+type ReplMutex = NoopRawMutex;
+
+/// Frame exchanged between the USB CDC handler and the REPL processor.
+pub type ReplFrame = Vec<u8, FRAME_CAPACITY>;
+
+/// USB→REPL frame queue.
+pub static REPL_RX_QUEUE: Channel<ReplMutex, ReplFrame, FRAME_QUEUE_DEPTH> = Channel::new();
+/// REPL→USB frame queue.
+pub static REPL_TX_QUEUE: Channel<ReplMutex, ReplFrame, FRAME_QUEUE_DEPTH> = Channel::new();
 
 /// Maximum number of bytes accepted on a single REPL line (excluding the
 /// terminator).

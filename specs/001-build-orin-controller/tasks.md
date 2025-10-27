@@ -74,7 +74,7 @@ IMPORTANT: please refer to existing `firmware` code for reusable logic that can 
 - [ ] T051 [US1] Rebuild the firmware REPL task around the controller-core executor and new `LineBuffer`, handling command parsing, feedback, and cooldown/error reporting in `firmware/src/main.rs`.
 - [ ] T052 [US1] Implement the Embassy USB dual-CDC task that provisions CDC0 for the REPL, streams bytes through bounded channels, and manages connect/disconnect flow control in `firmware/src/main.rs` and `firmware/src/usb/mod.rs`.
 - [ ] T053 [US1] Reconcile Embassy USB driver versions and supporting crates (e.g., `embassy-usb-driver`, `embassy-futures`) so the firmware bin and controller-core compile cleanly for `thumbv6m-none-eabi` without `std` conflicts.
-- [ ] T054 [US1] Remove legacy firmware-only strap/repl/telemetry scaffolding that now lives in `controller-core`, trimming dead modules and aligning imports within `firmware/src`. 
+- [X] T054 [US1] Remove legacy firmware-only strap/repl/telemetry scaffolding that now lives in `controller-core`, trimming dead modules and aligning imports within `firmware/src`. 
 - [X] T019 [P] [US1] Expose a reboot command in the emulator session and log parity transcripts to `emulator/src/session.rs` and `specs/001-build-orin-controller/evidence/emulator-reboot.log`.
 - [ ] T020 [US1] Capture the normal reboot logic analyzer trace at `specs/001-build-orin-controller/evidence/normal-reboot.sal`.
 - [ ] T021 [US1] Record queue serialization defmt output for overlapping reboot commands in `specs/001-build-orin-controller/evidence/queue-serialization.log`.

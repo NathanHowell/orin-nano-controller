@@ -7,6 +7,8 @@
 
 #![allow(dead_code)]
 
+use core::convert::TryFrom;
+
 use crate::bridge::BridgeDisconnectNotice;
 use crate::telemetry::{TelemetryPayload, TelemetryRecorder};
 use embassy_time::{Duration, Instant, Timer};
@@ -16,9 +18,9 @@ use heapless::{Deque, Vec};
 use embassy_stm32::gpio::OutputOpenDrain;
 
 use super::{
-    COMMAND_QUEUE_DEPTH, CommandReceiver, EventId, McuPin, STRAP_LINES, SequenceCommand,
-    SequenceError, SequenceOutcome, SequenceRun, SequenceState, SequenceTemplate, StepCompletion,
-    StrapAction, StrapLine, StrapLineId, StrapSequenceKind, StrapStep, TelemetryEventKind,
+    COMMAND_QUEUE_DEPTH, CommandReceiver, EventId, SequenceCommand, SequenceError, SequenceOutcome,
+    SequenceRun, SequenceState, SequenceTemplate, StepCompletion, StrapAction, StrapId, StrapLine,
+    StrapSequenceKind, StrapStep, TelemetryEventKind, strap_by_id,
 };
 
 /// Total number of sequence templates expected for this controller.
@@ -59,13 +61,6 @@ impl TemplateRegistry {
         self.templates.iter().find(|template| template.kind == kind)
     }
 
-    /// Looks up a mutable template reference by kind.
-    pub fn get_mut(&mut self, kind: StrapSequenceKind) -> Option<&mut SequenceTemplate> {
-        self.templates
-            .iter_mut()
-            .find(|template| template.kind == kind)
-    }
-
     /// Returns `true` when a template exists for the given kind.
     pub fn contains(&self, kind: StrapSequenceKind) -> bool {
         self.get(kind).is_some()
@@ -82,29 +77,12 @@ impl TemplateRegistry {
     }
 }
 
-fn strap_metadata(line: StrapLineId) -> &'static StrapLine {
-    STRAP_LINES
-        .iter()
-        .find(|candidate| candidate.id == line)
-        .expect("strap metadata missing")
+fn strap_metadata(line: StrapId) -> StrapLine {
+    strap_by_id(line)
 }
 
-fn strap_label(line: StrapLineId) -> &'static str {
-    match line {
-        StrapLineId::Reset => "RESET*",
-        StrapLineId::Recovery => "REC*",
-        StrapLineId::Power => "PWR*",
-        StrapLineId::Apo => "APO",
-    }
-}
-
-fn mcu_pin_label(pin: McuPin) -> &'static str {
-    match pin {
-        McuPin::Pa2 => "PA2",
-        McuPin::Pa3 => "PA3",
-        McuPin::Pa4 => "PA4",
-        McuPin::Pa5 => "PA5",
-    }
+fn strap_label(line: StrapId) -> &'static str {
+    strap_by_id(line).name
 }
 
 fn strap_action_label(action: StrapAction) -> &'static str {
@@ -114,8 +92,18 @@ fn strap_action_label(action: StrapAction) -> &'static str {
     }
 }
 
+fn core_duration_to_embassy(duration: core::time::Duration) -> Duration {
+    let micros = duration.as_micros();
+    let micros = u64::try_from(micros).unwrap_or(u64::MAX);
+    Duration::from_micros(micros)
+}
+
+fn opt_core_duration_to_embassy(duration: Option<core::time::Duration>) -> Option<Duration> {
+    duration.map(core_duration_to_embassy)
+}
+
 pub(crate) trait StrapDriver {
-    fn apply(&mut self, line: StrapLineId, action: StrapAction);
+    fn apply(&mut self, line: StrapId, action: StrapAction);
     fn release_all(&mut self);
 }
 
@@ -129,7 +117,7 @@ impl NoopStrapDriver {
 }
 
 impl StrapDriver for NoopStrapDriver {
-    fn apply(&mut self, _: StrapLineId, _: StrapAction) {}
+    fn apply(&mut self, _: StrapId, _: StrapAction) {}
 
     fn release_all(&mut self) {}
 }
@@ -158,19 +146,19 @@ impl<'d> HardwareStrapDriver<'d> {
         }
     }
 
-    fn output_mut(&mut self, line: StrapLineId) -> &mut OutputOpenDrain<'d> {
+    fn output_mut(&mut self, line: StrapId) -> &mut OutputOpenDrain<'d> {
         match line {
-            StrapLineId::Reset => &mut self.reset,
-            StrapLineId::Recovery => &mut self.recovery,
-            StrapLineId::Power => &mut self.power,
-            StrapLineId::Apo => &mut self.apo,
+            StrapId::Reset => &mut self.reset,
+            StrapId::Rec => &mut self.recovery,
+            StrapId::Pwr => &mut self.power,
+            StrapId::Apo => &mut self.apo,
         }
     }
 }
 
 #[cfg(target_os = "none")]
 impl<'d> StrapDriver for HardwareStrapDriver<'d> {
-    fn apply(&mut self, line: StrapLineId, action: StrapAction) {
+    fn apply(&mut self, line: StrapId, action: StrapAction) {
         let output = self.output_mut(line);
         match action {
             StrapAction::AssertLow => output.set_low(),
@@ -189,8 +177,9 @@ impl<'d> StrapDriver for HardwareStrapDriver<'d> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::straps::sequences::normal_reboot_template;
-    use crate::straps::{CommandQueue, CommandSource, StrapLineId};
+    use crate::straps::{CommandQueue, StrapId};
+    use controller_core::orchestrator::CommandSource;
+    use controller_core::sequences::normal_reboot_template;
     use embassy_time::{Duration, Instant};
 
     #[test]
@@ -223,7 +212,7 @@ mod tests {
         assert_eq!(telemetry.len(), 1);
         assert_eq!(
             telemetry.latest().unwrap().event,
-            TelemetryEventKind::StrapAsserted(StrapLineId::Power)
+            TelemetryEventKind::StrapAsserted(StrapId::Pwr)
         );
 
         now += Duration::from_millis(200);
@@ -239,7 +228,7 @@ mod tests {
         assert_eq!(telemetry.len(), 2);
         assert_eq!(
             telemetry.latest().unwrap().event,
-            TelemetryEventKind::StrapReleased(StrapLineId::Power)
+            TelemetryEventKind::StrapReleased(StrapId::Pwr)
         );
 
         now += Duration::from_millis(1_000);
@@ -251,7 +240,7 @@ mod tests {
         }
         assert_eq!(
             telemetry.latest().unwrap().event,
-            TelemetryEventKind::StrapAsserted(StrapLineId::Reset)
+            TelemetryEventKind::StrapAsserted(StrapId::Reset)
         );
 
         now += Duration::from_millis(20);
@@ -263,7 +252,7 @@ mod tests {
         }
         assert_eq!(
             telemetry.latest().unwrap().event,
-            TelemetryEventKind::StrapReleased(StrapLineId::Reset)
+            TelemetryEventKind::StrapReleased(StrapId::Reset)
         );
         assert_eq!(telemetry.len(), 4);
 
@@ -348,28 +337,28 @@ fn log_control_link_lost(had_active_run: bool, recovery_pending: bool, timestamp
 }
 
 #[cfg(target_os = "none")]
-fn log_strap_drive(line: StrapLineId, action: StrapAction, timestamp: Instant) {
+fn log_strap_drive(line: StrapId, action: StrapAction, timestamp: Instant) {
     let strap = strap_metadata(line);
     defmt::info!(
         "straps:{} {} pin={} driver={} J14-{=u8} t={}us",
         strap_label(line),
         strap_action_label(action),
-        mcu_pin_label(strap.mcu_pin),
-        strap.driver_channel.as_str(),
+        strap.mcu_pin,
+        strap.driver_output,
         strap.j14_pin,
         timestamp.as_micros()
     );
 }
 
 #[cfg(not(target_os = "none"))]
-fn log_strap_drive(line: StrapLineId, action: StrapAction, timestamp: Instant) {
+fn log_strap_drive(line: StrapId, action: StrapAction, timestamp: Instant) {
     let strap = strap_metadata(line);
     println!(
         "straps:{} {} pin={} driver={} J14-{} t={}us",
         strap_label(line),
         strap_action_label(action),
-        mcu_pin_label(strap.mcu_pin),
-        strap.driver_channel.as_str(),
+        strap.mcu_pin,
+        strap.driver_output,
         strap.j14_pin,
         timestamp.as_micros()
     );
@@ -393,7 +382,7 @@ fn compute_not_before(command: &SequenceCommand) -> Option<Instant> {
     command
         .flags
         .start_after
-        .map(|delay| command.requested_at + delay)
+        .map(|delay| command.requested_at + core_duration_to_embassy(delay))
 }
 
 fn remaining_delay(queued: &QueuedCommand) -> Option<Duration> {
@@ -1016,7 +1005,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
                         run.current_step_index = None;
                         run.state = SequenceState::Cooldown;
                     }
-                    self.begin_cooldown(template.cooldown, telemetry, now)
+                    self.begin_cooldown(template.cooldown_duration(), telemetry, now)
                 } else {
                     if let Some(run) = self.active_run.as_mut() {
                         run.current_step_index = Some(0);
@@ -1037,7 +1026,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
                         if let Some(run) = self.active_run.as_mut() {
                             run.state = SequenceState::Cooldown;
                         }
-                        return self.begin_cooldown(template.cooldown, telemetry, now);
+                        return self.begin_cooldown(template.cooldown_duration(), telemetry, now);
                     }
                 };
 
@@ -1047,7 +1036,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
                         if let Some(run) = self.active_run.as_mut() {
                             run.state = SequenceState::Cooldown;
                         }
-                        return self.begin_cooldown(template.cooldown, telemetry, now);
+                        return self.begin_cooldown(template.cooldown_duration(), telemetry, now);
                     }
                 };
 
@@ -1069,7 +1058,9 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
                     StepCompletion::OnEvent(_) => false,
                 }
             }
-            SequenceState::Cooldown => self.progress_cooldown(template.cooldown, telemetry, now),
+            SequenceState::Cooldown => {
+                self.progress_cooldown(template.cooldown_duration(), telemetry, now)
+            }
             SequenceState::Complete(_) | SequenceState::Error(_) => false,
         }
     }
@@ -1086,8 +1077,9 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
             if run.sequence_started_at.is_none() {
                 run.sequence_started_at = Some(now);
             }
+            let hold = core_duration_to_embassy(step.hold_duration());
             run.step_deadline = match step.completion {
-                StepCompletion::AfterDuration => Some(now + step.hold_for),
+                StepCompletion::AfterDuration => Some(now + hold),
                 _ => None,
             };
         } else {
@@ -1128,16 +1120,17 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
             let step = &template.phases[next_index];
             self.start_step(step, telemetry, now)
         } else {
-            self.begin_cooldown(template.cooldown, telemetry, now)
+            self.begin_cooldown(template.cooldown_duration(), telemetry, now)
         }
     }
 
     fn begin_cooldown(
         &mut self,
-        cooldown: Duration,
+        cooldown: core::time::Duration,
         telemetry: &mut TelemetryRecorder,
         now: Instant,
     ) -> bool {
+        let cooldown = core_duration_to_embassy(cooldown);
         if let Some(run) = self.active_run.as_mut() {
             if cooldown.as_ticks() == 0 {
                 run.cooldown_deadline = None;
@@ -1156,10 +1149,11 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
 
     fn progress_cooldown(
         &mut self,
-        cooldown: Duration,
+        cooldown: core::time::Duration,
         telemetry: &mut TelemetryRecorder,
         now: Instant,
     ) -> bool {
+        let cooldown = core_duration_to_embassy(cooldown);
         if cooldown.as_ticks() == 0 {
             let _ = self.complete_run(telemetry, SequenceOutcome::SkippedCooldown, now);
             return true;
@@ -1288,7 +1282,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
 
     fn drive_strap_transition(
         &mut self,
-        line: StrapLineId,
+        line: StrapId,
         action: StrapAction,
         telemetry: &mut TelemetryRecorder,
         timestamp: Instant,
@@ -1303,7 +1297,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
     }
 
     fn release_all_straps(&mut self, telemetry: &mut TelemetryRecorder, timestamp: Instant) {
-        for strap in STRAP_LINES.iter() {
+        for strap in super::ALL_STRAPS.iter() {
             self.drive_strap_transition(strap.id, StrapAction::ReleaseHigh, telemetry, timestamp);
         }
     }
@@ -1382,15 +1376,14 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
             Err(rejection) => {
                 if rejection.reason() == CommandRejectionReason::Busy {
                     let queued = QueuedCommand {
-                        command: rejection.command().clone(),
+                        command: *rejection.command(),
                         pending_event,
                         not_before,
                     };
 
                     // If reinsertion fails the queue is full; drop the request after flagging busy.
                     if self.pending_commands.push_front(queued).is_err() {
-                        self.last_rejection =
-                            Some(CommandRejection::busy(rejection.command().clone()));
+                        self.last_rejection = Some(CommandRejection::busy(*rejection.command()));
                     }
                 }
 

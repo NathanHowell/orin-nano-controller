@@ -5,7 +5,6 @@
 extern crate panic_halt;
 
 mod bridge;
-mod hw;
 mod repl;
 mod straps;
 mod telemetry;
