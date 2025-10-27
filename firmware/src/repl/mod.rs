@@ -10,6 +10,7 @@
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 #[cfg(target_os = "none")]
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+#[cfg(target_os = "none")]
 use embassy_sync::channel::Channel;
 use heapless::Vec;
 
@@ -50,8 +51,10 @@ type ReplMutex = NoopRawMutex;
 pub type ReplFrame = Vec<u8, FRAME_CAPACITY>;
 
 /// USB→REPL frame queue.
+#[cfg(target_os = "none")]
 pub static REPL_RX_QUEUE: Channel<ReplMutex, ReplFrame, FRAME_QUEUE_DEPTH> = Channel::new();
 /// REPL→USB frame queue.
+#[cfg(target_os = "none")]
 pub static REPL_TX_QUEUE: Channel<ReplMutex, ReplFrame, FRAME_QUEUE_DEPTH> = Channel::new();
 
 /// Maximum number of bytes accepted on a single REPL line (excluding the

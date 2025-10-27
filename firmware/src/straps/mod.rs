@@ -33,6 +33,7 @@ type StrapMutex = NoopRawMutex;
 pub type SequenceCommand = core_orch::SequenceCommand<Instant>;
 
 /// Queue used to coordinate strap sequence commands.
+#[cfg_attr(not(target_os = "none"), allow(dead_code))]
 pub type CommandQueue = Channel<StrapMutex, SequenceCommand, COMMAND_QUEUE_DEPTH>;
 
 /// Convenience sender type alias for the strap command queue.
