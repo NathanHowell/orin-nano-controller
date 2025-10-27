@@ -9,7 +9,7 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 #[cfg(target_os = "none")]
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::{Channel, Receiver, Sender, TrySendError};
-use embassy_time::Instant;
+use embassy_time::{Duration as EmbassyDuration, Instant as EmbassyInstant};
 use heapless::Vec;
 
 pub use core_orch::{EventId, SequenceError, SequenceOutcome, SequenceState};
@@ -17,6 +17,8 @@ pub use core_seq::{
     ALL_STRAPS, SequenceTemplate, StepCompletion, StrapAction, StrapId, StrapLine,
     StrapSequenceKind, StrapStep, strap_by_id,
 };
+
+use core::ops::Add;
 
 /// Depth of the command queue shared between producers and the orchestrator.
 pub const COMMAND_QUEUE_DEPTH: usize = 4;
@@ -30,7 +32,7 @@ type StrapMutex = ThreadModeRawMutex;
 type StrapMutex = NoopRawMutex;
 
 /// Type alias binding the shared `SequenceCommand` to Embassy's monotonic instant.
-pub type SequenceCommand = core_orch::SequenceCommand<Instant>;
+pub type SequenceCommand = core_orch::SequenceCommand<FirmwareInstant>;
 
 /// Queue used to coordinate strap sequence commands.
 #[cfg_attr(not(target_os = "none"), allow(dead_code))]
@@ -41,6 +43,42 @@ pub type CommandSender<'a> = Sender<'a, StrapMutex, SequenceCommand, COMMAND_QUE
 
 /// Convenience receiver type alias for the strap command queue.
 pub type CommandReceiver<'a> = Receiver<'a, StrapMutex, SequenceCommand, COMMAND_QUEUE_DEPTH>;
+
+/// Monotonic timestamp type used across firmware modules.
+pub type Instant = EmbassyInstant;
+
+/// Wrapper around `embassy_time::Instant` that implements the traits expected by controller-core.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct FirmwareInstant(pub EmbassyInstant);
+
+impl FirmwareInstant {
+    /// Converts the wrapper back into an Embassy instant.
+    pub fn into_embassy(self) -> EmbassyInstant {
+        self.0
+    }
+}
+
+impl From<EmbassyInstant> for FirmwareInstant {
+    fn from(value: EmbassyInstant) -> Self {
+        Self(value)
+    }
+}
+
+impl From<FirmwareInstant> for EmbassyInstant {
+    fn from(value: FirmwareInstant) -> Self {
+        value.0
+    }
+}
+
+impl Add<core::time::Duration> for FirmwareInstant {
+    type Output = Self;
+
+    fn add(self, rhs: core::time::Duration) -> Self::Output {
+        let micros = rhs.as_micros().min(u128::from(u64::MAX)) as u64;
+        let delta = EmbassyDuration::from_micros(micros);
+        Self(self.0 + delta)
+    }
+}
 
 /// Runtime state for an executing strap sequence.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -142,7 +180,7 @@ impl<'a> CommandProducer<'a> {
 }
 
 impl<'a> core_orch::CommandQueueProducer for CommandProducer<'a> {
-    type Instant = Instant;
+    type Instant = FirmwareInstant;
     type Error = ();
 
     fn try_enqueue(

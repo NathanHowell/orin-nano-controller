@@ -16,7 +16,7 @@ use heapless::Vec;
 
 #[cfg(target_os = "none")]
 use controller_core::orchestrator::{
-    CommandEnqueueError, CommandQueueProducer, CommandSource, ScheduleError, SequenceScheduler,
+    CommandEnqueueError, CommandSource, ScheduleError, SequenceScheduler,
 };
 #[cfg(target_os = "none")]
 use controller_core::repl::commands::{
@@ -34,7 +34,7 @@ use embassy_time::Instant;
 use heapless::String;
 
 #[cfg(target_os = "none")]
-use crate::straps::CommandProducer;
+use crate::straps::{CommandProducer, FirmwareInstant};
 
 /// Capacity for USB CDC frames exchanged with the REPL task.
 pub const FRAME_CAPACITY: usize = 64;
@@ -211,13 +211,17 @@ impl<'a> ReplSession<'a> {
         }
 
         let now = Instant::now();
-        match self.execute_command(text.trim(), now) {
+        let result = {
+            let trimmed = text.trim();
+            self.execute_command(trimmed, now)
+        };
+        match result {
             Ok(outcome) => self.notify_success(outcome).await,
             Err(err) => self.notify_execution_error(err, now).await,
         }
     }
 
-    async fn notify_success(&mut self, outcome: CommandOutcome<Instant>) {
+    async fn notify_success(&mut self, outcome: CommandOutcome<FirmwareInstant>) {
         let mut message: String<FRAME_CAPACITY> = String::new();
 
         match outcome {
@@ -234,7 +238,7 @@ impl<'a> ReplSession<'a> {
 
     async fn notify_execution_error(
         &mut self,
-        error: ExecutorError<'_, (), Instant>,
+        error: ExecutorError<'_, (), FirmwareInstant>,
         now: Instant,
     ) {
         let mut message: String<FRAME_CAPACITY> = String::new();
@@ -276,17 +280,18 @@ impl<'a> ReplSession<'a> {
         self.tx.send(frame).await;
     }
 
-    fn execute_command(
+    fn execute_command<'line>(
         &mut self,
-        line: &str,
+        line: &'line str,
         now: Instant,
-    ) -> Result<CommandOutcome<Instant>, ExecutorError<'_, (), Instant>> {
-        self.executor.execute(line, now, CommandSource::UsbHost)
+    ) -> Result<CommandOutcome<FirmwareInstant>, ExecutorError<'line, (), FirmwareInstant>> {
+        let instant = FirmwareInstant::from(now);
+        self.executor.execute(line, instant, CommandSource::UsbHost)
     }
 }
 
 #[cfg(target_os = "none")]
-fn format_reboot_ack(buffer: &mut String<FRAME_CAPACITY>, ack: RebootAck<Instant>) {
+fn format_reboot_ack(buffer: &mut String<FRAME_CAPACITY>, ack: RebootAck<FirmwareInstant>) {
     let _ = buffer.push_str("OK reboot");
     if let Some(delay) = ack.start_after {
         let millis = delay.as_millis();
@@ -295,7 +300,7 @@ fn format_reboot_ack(buffer: &mut String<FRAME_CAPACITY>, ack: RebootAck<Instant
 }
 
 #[cfg(target_os = "none")]
-fn format_recovery_ack(buffer: &mut String<FRAME_CAPACITY>, ack: RecoveryAck<Instant>) {
+fn format_recovery_ack(buffer: &mut String<FRAME_CAPACITY>, ack: RecoveryAck<FirmwareInstant>) {
     let _ = buffer.push_str("OK recovery");
     let _ = write!(buffer, " sequence={:?}", ack.sequence);
 }
@@ -303,7 +308,7 @@ fn format_recovery_ack(buffer: &mut String<FRAME_CAPACITY>, ack: RecoveryAck<Ins
 #[cfg(target_os = "none")]
 fn describe_schedule_error(
     buffer: &mut String<FRAME_CAPACITY>,
-    error: ScheduleError<(), Instant>,
+    error: ScheduleError<(), FirmwareInstant>,
     now: Instant,
 ) {
     match error {
@@ -312,6 +317,7 @@ fn describe_schedule_error(
             let _ = write!(buffer, "ERR missing-template {}", sequence_label(kind));
         }
         ScheduleError::CooldownActive { kind, ready_at } => {
+            let ready_at = ready_at.into_embassy();
             let remaining = ready_at.saturating_duration_since(now).as_millis();
             let _ = write!(
                 buffer,

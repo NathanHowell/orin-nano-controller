@@ -177,6 +177,7 @@ impl<'d> StrapDriver for HardwareStrapDriver<'d> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::straps::FirmwareInstant;
     use crate::straps::{CommandQueue, StrapId};
     use controller_core::orchestrator::CommandSource;
     use controller_core::sequences::normal_reboot_template;
@@ -194,7 +195,7 @@ mod tests {
 
         let command = SequenceCommand::new(
             StrapSequenceKind::NormalReboot,
-            Instant::from_micros(0),
+            FirmwareInstant::from(Instant::from_micros(0)),
             CommandSource::UsbHost,
         );
         orchestrator.begin_run(command).expect("run should start");
@@ -379,10 +380,10 @@ struct QueuedCommand {
 }
 
 fn compute_not_before(command: &SequenceCommand) -> Option<Instant> {
-    command
-        .flags
-        .start_after
-        .map(|delay| command.requested_at + core_duration_to_embassy(delay))
+    command.flags.start_after.map(|delay| {
+        let requested = command.requested_at + delay;
+        Instant::from(requested)
+    })
 }
 
 fn remaining_delay(queued: &QueuedCommand) -> Option<Duration> {
@@ -845,7 +846,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
             Some(run) => (
                 run.command.kind,
                 run.sequence_started_at,
-                run.command.requested_at,
+                run.command.requested_at.into_embassy(),
                 run.emitted_events.len(),
             ),
             None => return Err(TransitionError::NoActiveRun),
@@ -1329,7 +1330,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
             let event_id = telemetry.record_command_pending(
                 command.kind,
                 queue_depth,
-                command.requested_at,
+                command.requested_at.into_embassy(),
                 timestamp,
             );
 
@@ -1365,7 +1366,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
                     let start_event = telemetry.record_command_started(
                         run.command.kind,
                         self.pending_commands.len(),
-                        run.command.requested_at,
+                        run.command.requested_at.into_embassy(),
                         Instant::now(),
                     );
                     let _ = run.track_event(start_event);

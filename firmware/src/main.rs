@@ -1,5 +1,6 @@
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(target_os = "none", no_main)]
+#![cfg_attr(target_os = "none", allow(static_mut_refs))]
 
 #[cfg(target_os = "none")]
 extern crate panic_halt;
@@ -26,6 +27,8 @@ use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Instant, Timer};
 #[cfg(target_os = "none")]
 use embassy_usb::driver::EndpointError;
+#[cfg(target_os = "none")]
+use embedded_io_async::{Read, Write};
 
 #[cfg(target_os = "none")]
 use crate::bridge::{
@@ -46,12 +49,32 @@ use controller_core::repl::commands::CommandExecutor;
 #[cfg(target_os = "none")]
 use controller_core::sequences::{recovery_entry_template, recovery_immediate_template};
 #[cfg(target_os = "none")]
+use embassy_stm32::Peri;
+#[cfg(target_os = "none")]
 use embassy_stm32::gpio::{Level, OutputOpenDrain, Speed};
+#[cfg(target_os = "none")]
+use embassy_stm32::usart::{BufferedUart, Config as UartConfig, DataBits, Parity, StopBits};
 
 #[cfg(target_os = "none")]
 embassy_stm32::bind_interrupts!(struct UsbIrqs {
-    USB => embassy_stm32::usb::InterruptHandler<hal::peripherals::USB>,
+    USB_UCPD1_2 => embassy_stm32::usb::InterruptHandler<hal::peripherals::USB>;
 });
+
+#[cfg(target_os = "none")]
+embassy_stm32::bind_interrupts!(struct UartIrqs {
+    USART3_4_5_6_LPUART1 => embassy_stm32::usart::BufferedInterruptHandler<hal::peripherals::USART5>;
+});
+
+#[cfg(target_os = "none")]
+const BRIDGE_UART_BUFFER_SIZE: usize = bridge::BRIDGE_FRAME_SIZE * bridge::BRIDGE_QUEUE_DEPTH;
+
+#[cfg(target_os = "none")]
+static mut UART_TX_BUFFER: [u8; BRIDGE_UART_BUFFER_SIZE] = [0; BRIDGE_UART_BUFFER_SIZE];
+#[cfg(target_os = "none")]
+static mut UART_RX_BUFFER: [u8; BRIDGE_UART_BUFFER_SIZE] = [0; BRIDGE_UART_BUFFER_SIZE];
+
+#[cfg(target_os = "none")]
+const JETSON_UART_BAUD: u32 = 115_200;
 
 #[cfg(target_os = "none")]
 static mut USB_STORAGE: MaybeUninit<usb::UsbDeviceStorage> = MaybeUninit::uninit();
@@ -71,9 +94,12 @@ async fn main(spawner: Spawner) {
         PA3,
         PA4,
         PA5,
+        PB0,
+        PB1,
         USB,
         PA11,
         PA12,
+        USART5,
         ..
     } = hal::init(config);
 
@@ -101,7 +127,13 @@ async fn main(spawner: Spawner) {
         .spawn(repl_task())
         .expect("failed to spawn REPL task");
     spawner
-        .spawn(bridge_task(&BRIDGE_QUEUE, &BRIDGE_ACTIVITY))
+        .spawn(bridge_task(
+            &BRIDGE_QUEUE,
+            &BRIDGE_ACTIVITY,
+            USART5,
+            PB0,
+            PB1,
+        ))
         .expect("failed to spawn bridge task");
 
     core::future::pending::<()>().await;
@@ -143,25 +175,129 @@ async fn repl_task() -> ! {
 
 #[cfg(target_os = "none")]
 #[embassy_executor::task]
-async fn bridge_task(_queue: &'static BridgeQueue, _activity: &'static BridgeActivityBus) -> ! {
+async fn bridge_task(
+    queue: &'static BridgeQueue,
+    activity: &'static BridgeActivityBus,
+    usart: Peri<'static, hal::peripherals::USART5>,
+    tx_pin: Peri<'static, hal::peripherals::PB0>,
+    rx_pin: Peri<'static, hal::peripherals::PB1>,
+) -> ! {
+    let mut config = UartConfig::default();
+    config.baudrate = JETSON_UART_BAUD;
+    config.data_bits = DataBits::DataBits8;
+    config.stop_bits = StopBits::STOP1;
+    config.parity = Parity::ParityNone;
+
+    let uart = unsafe {
+        BufferedUart::new(
+            usart,
+            rx_pin,
+            tx_pin,
+            &mut UART_TX_BUFFER,
+            &mut UART_RX_BUFFER,
+            UartIrqs,
+            config,
+        )
+        .expect("failed to initialize bridge UART")
+    };
+
+    let (mut uart_tx, mut uart_rx) = uart.split();
+
+    let usb_to_ttl = queue.usb_to_ttl_receiver();
+    let ttl_to_usb = queue.ttl_to_usb_sender();
+
+    let usb_activity = activity.sender();
+    let jetson_activity = activity.sender();
+
+    let usb_to_uart = async move {
+        loop {
+            let frame = usb_to_ttl.receive().await;
+            if frame.is_empty() {
+                continue;
+            }
+
+            let data = frame.as_slice();
+            let mut written = 0usize;
+
+            while written < data.len() {
+                match uart_tx.write(&data[written..]).await {
+                    Ok(count) if count > 0 => {
+                        written += count;
+                    }
+                    Ok(_) => {}
+                    Err(_) => {
+                        defmt::warn!("bridge: UART write error");
+                        Timer::after(Duration::from_millis(5)).await;
+                        break;
+                    }
+                }
+            }
+
+            if written == data.len() {
+                if let Err(_) = uart_tx.flush().await {
+                    defmt::warn!("bridge: UART flush error");
+                    Timer::after(Duration::from_millis(5)).await;
+                    continue;
+                }
+
+                usb_activity
+                    .send(BridgeActivityEvent {
+                        kind: BridgeActivityKind::UsbToJetson,
+                        timestamp: Instant::now(),
+                        bytes: data.len(),
+                    })
+                    .await;
+            }
+        }
+    };
+
+    let uart_to_usb = async move {
+        let mut ingress = [0u8; bridge::BRIDGE_FRAME_SIZE];
+        loop {
+            match uart_rx.read(&mut ingress).await {
+                Ok(count) if count > 0 => {
+                    let mut frame = BridgeFrame::new();
+                    if frame.extend_from_slice(&ingress[..count]).is_err() {
+                        defmt::warn!("bridge: dropping Jetson frame len={} (overflow)", count);
+                        continue;
+                    }
+
+                    ttl_to_usb.send(frame).await;
+
+                    jetson_activity
+                        .send(BridgeActivityEvent {
+                            kind: BridgeActivityKind::JetsonToUsb,
+                            timestamp: Instant::now(),
+                            bytes: count,
+                        })
+                        .await;
+                }
+                Ok(_) => {}
+                Err(_) => {
+                    defmt::warn!("bridge: UART read error");
+                    Timer::after(Duration::from_millis(5)).await;
+                }
+            }
+        }
+    };
+
+    embassy_futures::join::join(usb_to_uart, uart_to_usb).await;
     loop {
-        Timer::after(Duration::from_secs(1)).await;
+        core::future::pending::<()>().await;
     }
 }
 
 #[cfg(target_os = "none")]
 #[embassy_executor::task]
 async fn usb_task(
-    usb: hal::peripherals::USB,
-    dp: hal::peripherals::PA12,
-    dm: hal::peripherals::PA11,
+    usb: Peri<'static, hal::peripherals::USB>,
+    dp: Peri<'static, hal::peripherals::PA12>,
+    dm: Peri<'static, hal::peripherals::PA11>,
 ) -> ! {
     let storage = unsafe { USB_STORAGE.write(usb::UsbDeviceStorage::new()) };
     let driver = embassy_stm32::usb::Driver::new(usb, UsbIrqs, dp, dm);
 
     let mut composite = usb::UsbComposite::new(driver, storage, usb::UsbDeviceStrings::default());
-
-    let mut device = composite.device;
 
     let usb::CdcAcmHandle {
         sender: mut repl_sender,
@@ -181,9 +317,11 @@ async fn usb_task(
         .take_bridge()
         .expect("bridge CDC interface unavailable");
 
+    let mut device = composite.device;
+
     let repl_future = async move {
-        let mut repl_rx_queue = REPL_RX_QUEUE.sender();
-        let mut repl_tx_queue = REPL_TX_QUEUE.receiver();
+        let repl_rx_queue = REPL_RX_QUEUE.sender();
+        let repl_tx_queue = REPL_TX_QUEUE.receiver();
         let mut ingress = [0u8; usb::MAX_PACKET_SIZE as usize];
         let mut tx_packet = [0u8; usb::MAX_PACKET_SIZE as usize];
         let mut pending_tx: Option<ReplFrame> = None;
@@ -195,7 +333,7 @@ async fn usb_task(
             )
             .await;
             wait_for_dtr(&repl_control, &mut repl_sender).await;
-            pending_tx = None;
+            pending_tx.take();
 
             defmt::info!("usb: REPL interface connected");
 
@@ -204,9 +342,9 @@ async fn usb_task(
                     repl_receiver.read_packet(&mut ingress),
                     async {
                         if pending_tx.is_none() {
-                            let frame = repl_tx_queue.receive().await;
-                            pending_tx = Some(frame);
+                            pending_tx = Some(repl_tx_queue.receive().await);
                         }
+
                         let frame = pending_tx
                             .as_ref()
                             .expect("pending frame missing during REPL write");
@@ -215,7 +353,7 @@ async fn usb_task(
 
                         match repl_sender.write_packet(&tx_packet[..len]).await {
                             Ok(()) => {
-                                pending_tx = None;
+                                pending_tx.take();
                                 Ok(len)
                             }
                             Err(err) => Err(err),
@@ -256,7 +394,7 @@ async fn usb_task(
                     Either3::Third(()) => {
                         if !repl_sender.dtr() {
                             defmt::warn!("usb: REPL host dropped DTR");
-                            pending_tx = None;
+                            pending_tx.take();
                             break;
                         }
                     }
@@ -266,9 +404,8 @@ async fn usb_task(
     };
 
     let bridge_future = async move {
-        let mut usb_to_ttl = BRIDGE_QUEUE.usb_to_ttl_sender();
-        let mut ttl_to_usb = BRIDGE_QUEUE.ttl_to_usb_receiver();
-        let mut activity_tx = BRIDGE_ACTIVITY.sender();
+        let usb_to_ttl = BRIDGE_QUEUE.usb_to_ttl_sender();
+        let ttl_to_usb = BRIDGE_QUEUE.ttl_to_usb_receiver();
         let mut ingress = [0u8; usb::MAX_PACKET_SIZE as usize];
         let mut tx_packet = [0u8; usb::MAX_PACKET_SIZE as usize];
         let mut pending_tx: Option<BridgeFrame> = None;
@@ -288,8 +425,7 @@ async fn usb_task(
                     bridge_receiver.read_packet(&mut ingress),
                     async {
                         if pending_tx.is_none() {
-                            let frame = ttl_to_usb.receive().await;
-                            pending_tx = Some(frame);
+                            pending_tx = Some(ttl_to_usb.receive().await);
                         }
 
                         let frame = pending_tx
@@ -300,7 +436,7 @@ async fn usb_task(
 
                         match bridge_sender.write_packet(&tx_packet[..len]).await {
                             Ok(()) => {
-                                pending_tx = None;
+                                pending_tx.take();
                                 Ok(len)
                             }
                             Err(err) => Err(err),
@@ -322,14 +458,6 @@ async fn usb_task(
                         }
 
                         usb_to_ttl.send(frame).await;
-
-                        activity_tx
-                            .send(BridgeActivityEvent {
-                                kind: BridgeActivityKind::UsbToJetson,
-                                timestamp: Instant::now(),
-                                bytes: count,
-                            })
-                            .await;
                     }
                     Either3::First(Err(EndpointError::Disabled)) => {
                         defmt::warn!("usb: bridge interface disabled");
@@ -338,15 +466,7 @@ async fn usb_task(
                     Either3::First(Err(_)) => {
                         defmt::warn!("usb: bridge read error");
                     }
-                    Either3::Second(Ok(len)) => {
-                        activity_tx
-                            .send(BridgeActivityEvent {
-                                kind: BridgeActivityKind::JetsonToUsb,
-                                timestamp: Instant::now(),
-                                bytes: len,
-                            })
-                            .await;
-                    }
+                    Either3::Second(Ok(_)) => {}
                     Either3::Second(Err(EndpointError::Disabled)) => {
                         defmt::warn!("usb: bridge write disabled");
                         break;
@@ -366,6 +486,9 @@ async fn usb_task(
     };
 
     join3(device.run(), repl_future, bridge_future).await;
+    loop {
+        core::future::pending::<()>().await;
+    }
 }
 
 #[cfg(target_os = "none")]
