@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::fs::{self, OpenOptions};
 use std::io::{self, BufWriter, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant as HostInstant};
 
 use controller_core::orchestrator::{
@@ -42,6 +42,42 @@ pub const HELP_TOPICS: &[(&str, &str)] = &[
     ),
 ];
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TranscriptProfile {
+    Reboot,
+    Recovery,
+}
+
+impl TranscriptProfile {
+    pub fn log_path(self) -> &'static str {
+        match self {
+            TranscriptProfile::Reboot => {
+                "specs/001-build-orin-controller/evidence/emulator-reboot.log"
+            }
+            TranscriptProfile::Recovery => {
+                "specs/001-build-orin-controller/evidence/emulator-recovery.log"
+            }
+        }
+    }
+
+    pub fn header(self) -> &'static str {
+        match self {
+            TranscriptProfile::Reboot => "Orin Controller Emulator reboot transcript",
+            TranscriptProfile::Recovery => "Orin Controller Emulator recovery transcript",
+        }
+    }
+
+    pub fn from_tag(tag: &str) -> Result<Self, String> {
+        if tag.eq_ignore_ascii_case("reboot") {
+            Ok(Self::Reboot)
+        } else if tag.eq_ignore_ascii_case("recovery") {
+            Ok(Self::Recovery)
+        } else {
+            Err(format!("Unknown transcript profile `{tag}`"))
+        }
+    }
+}
+
 pub struct Session {
     executor: CommandExecutor<SequenceScheduler<HostQueue>>,
     transcript: TranscriptLogger,
@@ -50,9 +86,8 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new(log_path: impl Into<PathBuf>) -> io::Result<Self> {
-        let path = log_path.into();
-        let transcript = TranscriptLogger::new(&path)?;
+    pub fn new(profile: TranscriptProfile) -> io::Result<Self> {
+        let transcript = TranscriptLogger::new(profile)?;
         let queue = HostQueue::new(DEFAULT_QUEUE_DEPTH);
         let mut scheduler = SequenceScheduler::new(queue);
         {
@@ -150,12 +185,14 @@ impl Session {
         elapsed: Duration,
     ) -> io::Result<Vec<String>> {
         let start_delay = ack.start_after.unwrap_or(Duration::ZERO);
+        let label = "reboot";
         self.handle_sequence(
-            "reboot",
+            label,
             StrapSequenceKind::NormalReboot,
             ack.requested_at,
             start_delay,
             elapsed,
+            |summary| SequenceNarration::new(default_ack(summary)),
         )
     }
 
@@ -164,19 +201,57 @@ impl Session {
         ack: RecoveryAck<HostInstant>,
         elapsed: Duration,
     ) -> io::Result<Vec<String>> {
-        let label = match ack.command {
-            RecoveryCommand::Enter => "recovery enter",
-            RecoveryCommand::Exit => "recovery exit",
-            RecoveryCommand::Now => "recovery now",
-        };
-
-        self.handle_sequence(
-            label,
-            ack.sequence,
-            ack.requested_at,
-            Duration::ZERO,
-            elapsed,
-        )
+        match ack.command {
+            RecoveryCommand::Enter => {
+                let label = "recovery enter";
+                self.handle_sequence(
+                    label,
+                    ack.sequence,
+                    ack.requested_at,
+                    Duration::ZERO,
+                    elapsed,
+                    |summary| SequenceNarration::new(default_ack(summary)),
+                )
+            }
+            RecoveryCommand::Exit => {
+                let label = "recovery exit";
+                self.handle_sequence(
+                    label,
+                    ack.sequence,
+                    ack.requested_at,
+                    Duration::ZERO,
+                    elapsed,
+                    |summary| SequenceNarration::new(default_ack(summary)),
+                )
+            }
+            RecoveryCommand::Now => {
+                let label = "recovery now";
+                self.handle_sequence(
+                    label,
+                    ack.sequence,
+                    ack.requested_at,
+                    Duration::ZERO,
+                    elapsed,
+                    |summary| {
+                        let head = format!(
+                            "OK recovery waiting-for-console seq={} at=+{}ms cooldown={} ready=+{}ms queue-depth={}",
+                            summary.sequence_id,
+                            summary.request_offset.as_millis(),
+                            format_duration_short(summary.cooldown),
+                            summary.cooldown_ready_offset.as_millis(),
+                            summary.queue_depth,
+                        );
+                        let notes = vec![
+                            "monitoring for console activity on bridge (timeout 10s fallback)"
+                                .to_string(),
+                            "emulator parity: REC releases automatically once activity is detected"
+                                .to_string(),
+                        ];
+                        SequenceNarration::with_notes(head, notes)
+                    },
+                )
+            }
+        }
     }
 
     fn record_output(&mut self, elapsed: Duration, lines: &[String]) -> io::Result<()> {
@@ -187,14 +262,18 @@ impl Session {
         Ok(())
     }
 
-    fn handle_sequence(
+    fn handle_sequence<F>(
         &mut self,
-        label: &str,
+        label: &'static str,
         sequence: StrapSequenceKind,
         requested_at: HostInstant,
         start_after: Duration,
         elapsed: Duration,
-    ) -> io::Result<Vec<String>> {
+        formatter: F,
+    ) -> io::Result<Vec<String>>
+    where
+        F: FnOnce(&SequenceSummary) -> SequenceNarration,
+    {
         self.command_count += 1;
         let sequence_id = self.command_count;
 
@@ -213,22 +292,29 @@ impl Session {
         let cooldown = template.cooldown_duration();
         let cooldown_ready = completion + cooldown;
 
-        let mut lines = Vec::new();
-        let request_offset = requested_at.duration_since(self.started_at);
-        let cooldown_offset = cooldown_ready.duration_since(self.started_at);
+        let summary = SequenceSummary {
+            label,
+            sequence,
+            sequence_id,
+            queue_depth,
+            request_offset: requested_at.duration_since(self.started_at),
+            start_after,
+            run_duration,
+            cooldown,
+            cooldown_ready_offset: cooldown_ready.duration_since(self.started_at),
+        };
 
-        lines.push(format!(
-            "OK {label} queued seq={sequence_id} at=+{}ms start-after={} cooldown={} ready=+{}ms queue-depth={queue_depth}",
-            request_offset.as_millis(),
-            format_duration_short(start_after),
-            format_duration_short(cooldown),
-            cooldown_offset.as_millis(),
-        ));
+        let narration = formatter(&summary);
+        let mut lines = Vec::new();
+        lines.push(narration.head);
+        for note in narration.notes {
+            lines.push(note);
+        }
 
         lines.push(format!(
             "{:?} run-duration={} steps={}",
-            sequence,
-            format_duration_short(run_duration),
+            summary.sequence,
+            format_duration_short(summary.run_duration),
             template.step_count()
         ));
 
@@ -245,6 +331,49 @@ impl Session {
         self.record_output(elapsed, &lines)?;
         Ok(lines)
     }
+}
+
+struct SequenceSummary {
+    label: &'static str,
+    sequence: StrapSequenceKind,
+    sequence_id: usize,
+    queue_depth: usize,
+    request_offset: Duration,
+    start_after: Duration,
+    run_duration: Duration,
+    cooldown: Duration,
+    cooldown_ready_offset: Duration,
+}
+
+struct SequenceNarration {
+    head: String,
+    notes: Vec<String>,
+}
+
+impl SequenceNarration {
+    fn new(head: String) -> Self {
+        Self {
+            head,
+            notes: Vec::new(),
+        }
+    }
+
+    fn with_notes(head: String, notes: Vec<String>) -> Self {
+        Self { head, notes }
+    }
+}
+
+fn default_ack(summary: &SequenceSummary) -> String {
+    format!(
+        "OK {label} queued seq={} at=+{}ms start-after={} cooldown={} ready=+{}ms queue-depth={}",
+        summary.sequence_id,
+        summary.request_offset.as_millis(),
+        format_duration_short(summary.start_after),
+        format_duration_short(summary.cooldown),
+        summary.cooldown_ready_offset.as_millis(),
+        summary.queue_depth,
+        label = summary.label,
+    )
 }
 
 #[derive(Clone)]
@@ -296,7 +425,8 @@ struct TranscriptLogger {
 }
 
 impl TranscriptLogger {
-    fn new(path: &Path) -> io::Result<Self> {
+    fn new(profile: TranscriptProfile) -> io::Result<Self> {
+        let path = Path::new(profile.log_path());
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -311,12 +441,12 @@ impl TranscriptLogger {
             writer: BufWriter::new(file),
         };
 
-        logger.write_header()?;
+        logger.write_header(profile)?;
         Ok(logger)
     }
 
-    fn write_header(&mut self) -> io::Result<()> {
-        writeln!(self.writer, "# Orin Controller Emulator reboot transcript")?;
+    fn write_header(&mut self, profile: TranscriptProfile) -> io::Result<()> {
+        writeln!(self.writer, "# {}", profile.header())?;
         writeln!(
             self.writer,
             "# Timestamps are milliseconds since session start"

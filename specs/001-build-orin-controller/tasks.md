@@ -92,7 +92,7 @@ IMPORTANT: please refer to existing `firmware` code for reusable logic that can 
 - [X] T025 [P] [US2] Extend orchestrator logic to hold REC until bridge activity or timeout in `controller-core/src/orchestrator/mod.rs`.
 - [X] T026 [P] [US2] Publish bridge activity telemetry hooks driving REC release in `firmware/src/bridge/mod.rs`.
 - [X] T027 [P] [US2] Implement `recovery enter|exit|now` parsing with grammar validation in `controller-core/src/repl/commands.rs`.
-- [ ] T028 [P] [US2] Mirror recovery workflows in the emulator and archive transcripts in `emulator/src/session.rs` and `specs/001-build-orin-controller/evidence/emulator-recovery.log`.
+- [X] T028 [P] [US2] Mirror recovery workflows in the emulator and archive transcripts in `emulator/src/session.rs` and `specs/001-build-orin-controller/evidence/emulator-recovery.log`.
 - [ ] T029 [US2] Capture recovery strap trace and USB host log at `specs/001-build-orin-controller/evidence/recovery-entry.sal` and `specs/001-build-orin-controller/evidence/recovery-usb.log`.
 - [ ] T030 [US2] Update recovery validation notes and evidence links in `specs/001-build-orin-controller/spec.md`.
 - [ ] T031 [P] [US2] Add host tests covering REC hold/release behavior in `controller-core/tests/recovery.rs`.
