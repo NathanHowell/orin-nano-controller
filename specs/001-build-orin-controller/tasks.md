@@ -75,7 +75,7 @@ IMPORTANT: please refer to existing `firmware` code for reusable logic that can 
 - [X] T052 [US1] Implement the Embassy USB dual-CDC task that provisions CDC0 for the REPL, streams bytes through bounded channels, and manages connect/disconnect flow control in `firmware/src/main.rs` and `firmware/src/usb/mod.rs`.
 - [X] T055 [US1] Implement grammar-aware completion catalog in `controller-core/src/repl/completion.rs` with unit tests.
 - [X] T056 [US1] Extend firmware line editor to surface Tab completions and echo results in `firmware/src/repl/mod.rs`.
-- [ ] T057 [US1] Add emulator parity for tab completion with transcript coverage in `emulator/src/session.rs` and evidence logs.
+- [X] T057 [US1] Add emulator parity for tab completion with transcript coverage in `emulator/src/session.rs` and evidence logs.
 - [X] T053 [US1] Reconcile Embassy USB driver versions and supporting crates (e.g., `embassy-usb-driver`, `embassy-futures`) so the firmware bin and controller-core compile cleanly for `thumbv6m-none-eabi` without `std` conflicts.
 - [X] T054 [US1] Remove legacy firmware-only strap/repl/telemetry scaffolding that now lives in `controller-core`, trimming dead modules and aligning imports within `firmware/src`. 
 - [X] T019 [P] [US1] Expose a reboot command in the emulator session and log parity transcripts to `emulator/src/session.rs` and `specs/001-build-orin-controller/evidence/emulator-reboot.log`.

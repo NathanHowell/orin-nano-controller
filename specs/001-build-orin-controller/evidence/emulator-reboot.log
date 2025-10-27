@@ -1,49 +1,50 @@
 # Orin Controller Emulator reboot transcript
 # Timestamps are milliseconds since session start
 
-[+  1902 ms] HOST> help
-[+  1902 ms] EMU < Available commands:
-[+  1902 ms] EMU <   reboot [now|delay <duration>]  - queue the normal reboot sequence
-[+  1902 ms] EMU <   recovery [enter|exit|now]    - manage recovery strap flows
-[+  1902 ms] EMU <   fault recover [retries=<1-3>]   - attempt the fault recovery sequence
-[+  1902 ms] EMU <   status                        - display orchestrator state
-[+  1902 ms] EMU <   help [topic]                    - show help for a command
-[+  1902 ms] EMU < Type `help <topic>` for a specific command.
-[+  4693 ms] HOST> re
-[+  4693 ms] EMU < ERR syntax expected help, found Some(Ident) at 0..2
-[+  5667 ms] HOST> reboot
-[+  5667 ms] EMU < OK reboot queued seq=1 at=+5667ms start-after=0ms cooldown=1.000s ready=+7887ms queue-depth=1
-[+  5667 ms] EMU < NormalReboot run-duration=1.220s steps=4
-[+  5667 ms] EMU <   1. PWR* assert-low hold=200ms limits=180ms..220ms mode=after-duration
-[+  5667 ms] EMU <   2. PWR* release-high hold=1.000s limits=900ms..1.100s mode=after-duration
-[+  5667 ms] EMU <   3. RESET* assert-low hold=20ms min=20ms mode=after-duration
-[+  5667 ms] EMU <   4. RESET* release-high hold=0ms limits=unbounded mode=after-duration
-[+ 19353 ms] HOST> recovery now
-[+ 19353 ms] EMU < OK recovery waiting-for-console seq=2 at=+19353ms cooldown=1.000s ready=+20973ms queue-depth=1
-[+ 19353 ms] EMU < monitoring for console activity on bridge (timeout 10s fallback)
-[+ 19353 ms] EMU < emulator parity: REC releases automatically once activity is detected
-[+ 19353 ms] EMU < RecoveryImmediate run-duration=620ms steps=6
-[+ 19353 ms] EMU <   1. REC* assert-low hold=100ms min=100ms mode=after-duration
-[+ 19353 ms] EMU <   2. RESET* assert-low hold=20ms min=20ms mode=after-duration
-[+ 19353 ms] EMU <   3. RESET* release-high hold=0ms limits=unbounded mode=after-duration
-[+ 19353 ms] EMU <   4. REC* assert-low hold=500ms min=500ms mode=after-duration
-[+ 19353 ms] EMU <   5. REC* assert-low hold=0ms limits=unbounded mode=bridge-activity
-[+ 19353 ms] EMU <   6. REC* release-high hold=0ms limits=unbounded mode=after-duration
-[+ 54422 ms] HOST> status
-[+ 54422 ms] EMU < ERR unsupported status (pending implementation)
-[+934829 ms] HOST> ls
-[+934829 ms] EMU < ERR syntax expected help, found Some(Ident) at 0..2
-[+942014 ms] HOST> h
-[+942014 ms] EMU < ERR syntax expected help, found Some(Ident) at 0..1
-[+944636 ms] HOST> he	lp
-[+944636 ms] EMU < ERR syntax expected help, found Some(Ident) at 0..2
-[+945508 ms] HOST> help
-[+945508 ms] EMU < Available commands:
-[+945508 ms] EMU <   reboot [now|delay <duration>]  - queue the normal reboot sequence
-[+945508 ms] EMU <   recovery [enter|exit|now]    - manage recovery strap flows
-[+945508 ms] EMU <   fault recover [retries=<1-3>]   - attempt the fault recovery sequence
-[+945508 ms] EMU <   status                        - display orchestrator state
-[+945508 ms] EMU <   help [topic]                    - show help for a command
-[+945508 ms] EMU < Type `help <topic>` for a specific command.
-[+950924 ms] HOST> help status
-[+950924 ms] EMU < status                        - display orchestrator state
+[+  1423 ms] HOST> [TAB] prefix="" suffix="" cursor=0
+[+  1423 ms] EMU < completion options (5)
+[+  1423 ms] EMU <   reboot
+[+  1423 ms] EMU <   recovery
+[+  1423 ms] EMU <   fault
+[+  1423 ms] EMU <   status
+[+  1423 ms] EMU <   help
+[+  3062 ms] HOST> [TAB] prefix="h" suffix="" cursor=1
+[+  3062 ms] EMU < completion applied: help (range=0..1)
+[+  3806 ms] HOST> [TAB] prefix="help" suffix="" cursor=4
+[+  3806 ms] EMU < completion applied: help (range=0..4)
+[+  4200 ms] HOST> help
+[+  4200 ms] EMU < Available commands:
+[+  4200 ms] EMU <   reboot [now|delay <duration>]  - queue the normal reboot sequence
+[+  4200 ms] EMU <   recovery [enter|exit|now]    - manage recovery strap flows
+[+  4200 ms] EMU <   fault recover [retries=<1-3>]   - attempt the fault recovery sequence
+[+  4200 ms] EMU <   status                        - display orchestrator state
+[+  4200 ms] EMU <   help [topic]                    - show help for a command
+[+  4200 ms] EMU < Type `help <topic>` for a specific command.
+[+  5531 ms] HOST> [TAB] prefix="re" suffix="" cursor=2
+[+  5531 ms] EMU < completion options (2)
+[+  5531 ms] EMU <   reboot
+[+  5531 ms] EMU <   recovery
+[+  6327 ms] HOST> [TAB] prefix="reb" suffix="" cursor=3
+[+  6327 ms] EMU < completion applied: reboot (range=0..3)
+[+  6947 ms] HOST> reboot
+[+  6947 ms] EMU < OK reboot queued seq=1 at=+6947ms start-after=0ms cooldown=1.000s ready=+9167ms queue-depth=1
+[+  6947 ms] EMU < NormalReboot run-duration=1.220s steps=4
+[+  6947 ms] EMU <   1. PWR* assert-low hold=200ms limits=180ms..220ms mode=after-duration
+[+  6947 ms] EMU <   2. PWR* release-high hold=1.000s limits=900ms..1.100s mode=after-duration
+[+  6947 ms] EMU <   3. RESET* assert-low hold=20ms min=20ms mode=after-duration
+[+  6947 ms] EMU <   4. RESET* release-high hold=0ms limits=unbounded mode=after-duration
+[+  9107 ms] HOST> [TAB] prefix="rebo" suffix="" cursor=4
+[+  9107 ms] EMU < completion applied: reboot (range=0..4)
+[+  9556 ms] HOST> [TAB] prefix="reboot " suffix="" cursor=7
+[+  9556 ms] EMU < completion options (2)
+[+  9556 ms] EMU <   now
+[+  9556 ms] EMU <   delay
+[+  9972 ms] HOST> [TAB] prefix="reboot n" suffix="" cursor=8
+[+  9972 ms] EMU < completion applied: now (range=7..8)
+[+ 10673 ms] HOST> reboot now
+[+ 10673 ms] EMU < OK reboot queued seq=2 at=+10673ms start-after=0ms cooldown=1.000s ready=+12893ms queue-depth=1
+[+ 10673 ms] EMU < NormalReboot run-duration=1.220s steps=4
+[+ 10673 ms] EMU <   1. PWR* assert-low hold=200ms limits=180ms..220ms mode=after-duration
+[+ 10673 ms] EMU <   2. PWR* release-high hold=1.000s limits=900ms..1.100s mode=after-duration
+[+ 10673 ms] EMU <   3. RESET* assert-low hold=20ms min=20ms mode=after-duration
+[+ 10673 ms] EMU <   4. RESET* release-high hold=0ms limits=unbounded mode=after-duration

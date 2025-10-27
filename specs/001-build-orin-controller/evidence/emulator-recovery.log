@@ -1,3 +1,46 @@
 # Orin Controller Emulator recovery transcript
 # Timestamps are milliseconds since session start
 
+[+     0 ms] HOST> [TAB] prefix="re" suffix="" cursor=2
+[+     0 ms] EMU < completion options (2)
+[+     0 ms] EMU <   reboot
+[+     0 ms] EMU <   recovery
+[+     0 ms] HOST> [TAB] prefix="recovery " suffix="" cursor=9
+[+     0 ms] EMU < completion options (3)
+[+     0 ms] EMU <   enter
+[+     0 ms] EMU <   exit
+[+     0 ms] EMU <   now
+[+     0 ms] HOST> [TAB] prefix="recovery e" suffix="" cursor=10
+[+     0 ms] EMU < completion options (2)
+[+     0 ms] EMU <   enter
+[+     0 ms] EMU <   exit
+[+     0 ms] HOST> [TAB] prefix="recovery n" suffix="" cursor=10
+[+     0 ms] EMU < completion applied: now (range=9..10)
+[+     0 ms] HOST> [TAB] prefix="help " suffix="" cursor=5
+[+     0 ms] EMU < completion options (5)
+[+     0 ms] EMU <   reboot
+[+     0 ms] EMU <   recovery
+[+     0 ms] EMU <   fault
+[+     0 ms] EMU <   status
+[+     0 ms] EMU <   help
+[+     0 ms] HOST> recovery enter
+[+     0 ms] EMU < OK recovery enter queued seq=1 at=+0ms start-after=0ms cooldown=1.000s ready=+1620ms queue-depth=1
+[+     0 ms] EMU < RecoveryEntry run-duration=620ms steps=5
+[+     0 ms] EMU <   1. REC* assert-low hold=100ms min=100ms mode=after-duration
+[+     0 ms] EMU <   2. RESET* assert-low hold=20ms min=20ms mode=after-duration
+[+     0 ms] EMU <   3. RESET* release-high hold=0ms limits=unbounded mode=after-duration
+[+     0 ms] EMU <   4. REC* assert-low hold=500ms min=500ms mode=after-duration
+[+     0 ms] EMU <   5. REC* release-high hold=0ms limits=unbounded mode=after-duration
+[+     0 ms] HOST> recovery now
+[+     0 ms] EMU < OK recovery waiting-for-console seq=2 at=+0ms cooldown=1.000s ready=+1620ms queue-depth=1
+[+     0 ms] EMU < monitoring for console activity on bridge (timeout 10s fallback)
+[+     0 ms] EMU < emulator parity: REC releases automatically once activity is detected
+[+     0 ms] EMU < RecoveryImmediate run-duration=620ms steps=6
+[+     0 ms] EMU <   1. REC* assert-low hold=100ms min=100ms mode=after-duration
+[+     0 ms] EMU <   2. RESET* assert-low hold=20ms min=20ms mode=after-duration
+[+     0 ms] EMU <   3. RESET* release-high hold=0ms limits=unbounded mode=after-duration
+[+     0 ms] EMU <   4. REC* assert-low hold=500ms min=500ms mode=after-duration
+[+     0 ms] EMU <   5. REC* assert-low hold=0ms limits=unbounded mode=bridge-activity
+[+     0 ms] EMU <   6. REC* release-high hold=0ms limits=unbounded mode=after-duration
+[+     0 ms] HOST> help status
+[+     0 ms] EMU < status                        - display orchestrator state

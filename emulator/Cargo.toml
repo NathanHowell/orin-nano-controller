@@ -9,3 +9,4 @@ path = "src/main.rs"
 
 [dependencies]
 controller-core = { path = "../controller-core", features = ["alloc"] }
+crossterm = "0.27"

@@ -11,6 +11,7 @@ use controller_core::orchestrator::{
 use controller_core::repl::commands::{
     CommandError, CommandExecutor, CommandOutcome, FaultAck, RebootAck, RecoveryAck,
 };
+use controller_core::repl::completion::{CompletionEngine, Replacement};
 use controller_core::repl::grammar::RecoveryCommand;
 use controller_core::sequences::fault::FAULT_RECOVERY_MAX_RETRIES;
 use controller_core::sequences::{
@@ -79,11 +80,19 @@ impl TranscriptProfile {
     }
 }
 
+#[derive(Debug)]
+pub enum CompletionResponse {
+    NoMatches,
+    Applied { replacement: Replacement },
+    Suggestions { options: Vec<&'static str> },
+}
+
 pub struct Session {
     executor: CommandExecutor<SequenceScheduler<HostQueue>>,
     transcript: TranscriptLogger,
     started_at: HostInstant,
     command_count: usize,
+    completion: CompletionEngine,
 }
 
 impl Session {
@@ -110,6 +119,7 @@ impl Session {
             transcript,
             started_at: HostInstant::now(),
             command_count: 0,
+            completion: CompletionEngine::new(),
         })
     }
 
@@ -155,6 +165,46 @@ impl Session {
                 Ok(lines)
             }
         }
+    }
+
+    pub fn handle_completion(
+        &mut self,
+        buffer: &str,
+        cursor: usize,
+    ) -> io::Result<CompletionResponse> {
+        let length = buffer.len();
+        let cursor = cursor.min(length);
+        let (prefix, suffix) = buffer.split_at(cursor);
+        let elapsed = self.started_at.elapsed();
+        self.transcript
+            .log_completion_request(elapsed, prefix, suffix, cursor)?;
+
+        let result = self.completion.complete(buffer, cursor);
+        if result.options.is_empty() {
+            self.transcript.log_completion_none(elapsed)?;
+            return Ok(CompletionResponse::NoMatches);
+        }
+
+        let options: Vec<&'static str> = result.options.iter().copied().collect();
+        if options.len() == 1 {
+            let candidate = options[0];
+            if let Some(replacement) = result.replacement {
+                let replacement_log = replacement.clone();
+                self.transcript.log_completion_applied(
+                    elapsed,
+                    candidate,
+                    Some(replacement_log),
+                )?;
+                return Ok(CompletionResponse::Applied { replacement });
+            } else {
+                self.transcript
+                    .log_completion_applied(elapsed, candidate, None)?;
+                return Ok(CompletionResponse::NoMatches);
+            }
+        }
+
+        self.transcript.log_completion_options(elapsed, &options)?;
+        Ok(CompletionResponse::Suggestions { options })
     }
 
     fn handle_help(&mut self, topic: Option<&str>, elapsed: Duration) -> io::Result<Vec<String>> {
@@ -513,6 +563,56 @@ impl TranscriptLogger {
             line
         )?;
         self.writer.flush()
+    }
+
+    fn log_completion_request(
+        &mut self,
+        elapsed: Duration,
+        prefix: &str,
+        suffix: &str,
+        cursor: usize,
+    ) -> io::Result<()> {
+        let message = format!(
+            "[TAB] prefix={prefix:?} suffix={suffix:?} cursor={cursor}",
+            prefix = prefix,
+            suffix = suffix,
+            cursor = cursor
+        );
+        self.append_line(elapsed, TranscriptRole::Host, &message)
+    }
+
+    fn log_completion_none(&mut self, elapsed: Duration) -> io::Result<()> {
+        self.append_line(elapsed, TranscriptRole::Emulator, "completion: no matches")
+    }
+
+    fn log_completion_applied(
+        &mut self,
+        elapsed: Duration,
+        candidate: &str,
+        replacement: Option<Replacement>,
+    ) -> io::Result<()> {
+        let message = match replacement {
+            Some(rep) => format!(
+                "completion applied: {candidate} (range={}..{})",
+                rep.start, rep.end
+            ),
+            None => format!("completion candidate: {candidate} (no replacement applied)"),
+        };
+        self.append_line(elapsed, TranscriptRole::Emulator, &message)
+    }
+
+    fn log_completion_options(
+        &mut self,
+        elapsed: Duration,
+        options: &[&'static str],
+    ) -> io::Result<()> {
+        let summary = format!("completion options ({})", options.len());
+        self.append_line(elapsed, TranscriptRole::Emulator, &summary)?;
+        for option in options {
+            let line = format!("  {option}");
+            self.append_line(elapsed, TranscriptRole::Emulator, &line)?;
+        }
+        Ok(())
     }
 }
 
