@@ -16,12 +16,12 @@ use heapless::Vec;
 
 #[cfg(target_os = "none")]
 use controller_core::orchestrator::{
-    CommandEnqueueError, CommandFlags, CommandQueueProducer, CommandSource, SequenceCommand,
+    CommandEnqueueError, CommandQueueProducer, CommandSource, ScheduleError, SequenceScheduler,
 };
 #[cfg(target_os = "none")]
-use controller_core::repl::commands::{CommandOutcome, RebootAck, RecoveryAck};
-#[cfg(target_os = "none")]
-use controller_core::repl::grammar::{self, Command, RebootCommand, RecoveryCommand};
+use controller_core::repl::commands::{
+    CommandError as ExecutorError, CommandExecutor, CommandOutcome, RebootAck, RecoveryAck,
+};
 #[cfg(target_os = "none")]
 use controller_core::sequences::StrapSequenceKind;
 #[cfg(target_os = "none")]
@@ -34,7 +34,7 @@ use embassy_time::Instant;
 use heapless::String;
 
 #[cfg(target_os = "none")]
-use crate::straps::{CommandProducer, CommandSender};
+use crate::straps::CommandProducer;
 
 /// Capacity for USB CDC frames exchanged with the REPL task.
 pub const FRAME_CAPACITY: usize = 64;
@@ -136,13 +136,16 @@ type ReplReceiver<'a> = Receiver<'a, ReplMutex, ReplFrame, FRAME_QUEUE_DEPTH>;
 #[cfg(target_os = "none")]
 type ReplSender<'a> = Sender<'a, ReplMutex, ReplFrame, FRAME_QUEUE_DEPTH>;
 
+#[cfg(target_os = "none")]
+type FirmwareExecutor<'a> = CommandExecutor<SequenceScheduler<CommandProducer<'a>>>;
+
 /// Minimal REPL session that consumes frames from the USB CDC queue and
 /// dispatches parsed commands into the strap command scheduler.
 #[cfg(target_os = "none")]
 pub struct ReplSession<'a> {
     rx: ReplReceiver<'a>,
     tx: ReplSender<'a>,
-    producer: CommandProducer<'a>,
+    executor: FirmwareExecutor<'a>,
     buffer: LineBuffer,
     drop_input: bool,
 }
@@ -150,11 +153,11 @@ pub struct ReplSession<'a> {
 #[cfg(target_os = "none")]
 impl<'a> ReplSession<'a> {
     /// Creates a new REPL session bound to the shared command queue.
-    pub fn new(command_sender: CommandSender<'a>) -> Self {
+    pub fn new(executor: FirmwareExecutor<'a>) -> Self {
         Self {
             rx: REPL_RX_QUEUE.receiver(),
             tx: REPL_TX_QUEUE.sender(),
-            producer: CommandProducer::new(command_sender),
+            executor,
             buffer: LineBuffer::new(),
             drop_input: false,
         }
@@ -210,7 +213,7 @@ impl<'a> ReplSession<'a> {
         let now = Instant::now();
         match self.execute_command(text.trim(), now) {
             Ok(outcome) => self.notify_success(outcome).await,
-            Err(err) => self.notify_execution_error(err).await,
+            Err(err) => self.notify_execution_error(err, now).await,
         }
     }
 
@@ -229,18 +232,24 @@ impl<'a> ReplSession<'a> {
         self.send_line(message.as_str()).await;
     }
 
-    async fn notify_execution_error(&mut self, error: ExecuteError) {
+    async fn notify_execution_error(
+        &mut self,
+        error: ExecutorError<'_, (), Instant>,
+        now: Instant,
+    ) {
         let mut message: String<FRAME_CAPACITY> = String::new();
 
         match error {
-            ExecuteError::Parse(parse) => {
+            ExecutorError::Parse(parse) => {
                 let _ = message.push_str("ERR syntax ");
-                let _ = message.push_str(parse.as_str());
+                let _ = write!(message, "{parse}");
             }
-            ExecuteError::Unsupported(topic) => {
+            ExecutorError::Unsupported(topic) => {
                 let _ = write!(message, "ERR unsupported {topic}");
             }
-            ExecuteError::Queue(error) => describe_queue_error(&mut message, error),
+            ExecutorError::Schedule(error) => {
+                describe_schedule_error(&mut message, error, now);
+            }
         }
 
         if message.is_empty() {
@@ -271,93 +280,8 @@ impl<'a> ReplSession<'a> {
         &mut self,
         line: &str,
         now: Instant,
-    ) -> Result<CommandOutcome<Instant>, ExecuteError> {
-        let command = match grammar::parse(line) {
-            Ok(command) => command,
-            Err(error) => {
-                let mut message = String::<FRAME_CAPACITY>::new();
-                let _ = write!(message, "{error}");
-                return Err(ExecuteError::Parse(message));
-            }
-        };
-
-        self.dispatch_command(command, now)
-    }
-
-    fn dispatch_command(
-        &mut self,
-        command: Command<'_>,
-        now: Instant,
-    ) -> Result<CommandOutcome<Instant>, ExecuteError> {
-        match command {
-            Command::Reboot(action) => self.enqueue_reboot(action, now).map(CommandOutcome::Reboot),
-            Command::Recovery(action) => self
-                .enqueue_recovery(action, now)
-                .map(CommandOutcome::Recovery),
-            Command::Fault(_) => Err(ExecuteError::Unsupported("fault")),
-            Command::Status => Err(ExecuteError::Unsupported("status")),
-            Command::Help(_) => Err(ExecuteError::Unsupported("help")),
-        }
-    }
-
-    fn enqueue_reboot(
-        &mut self,
-        action: RebootCommand,
-        now: Instant,
-    ) -> Result<RebootAck<Instant>, ExecuteError> {
-        let mut flags = CommandFlags::default();
-        let start_after = match action {
-            RebootCommand::Now => None,
-            RebootCommand::Delay(duration) if duration.is_zero() => None,
-            RebootCommand::Delay(duration) => {
-                flags.start_after = Some(duration);
-                Some(duration)
-            }
-        };
-
-        let command = SequenceCommand::with_flags(
-            StrapSequenceKind::NormalReboot,
-            now,
-            CommandSource::UsbHost,
-            flags,
-        );
-        self.producer
-            .try_enqueue(command)
-            .map_err(ExecuteError::Queue)?;
-
-        Ok(RebootAck {
-            requested_at: now,
-            start_after,
-        })
-    }
-
-    fn enqueue_recovery(
-        &mut self,
-        action: RecoveryCommand,
-        now: Instant,
-    ) -> Result<RecoveryAck<Instant>, ExecuteError> {
-        let (sequence, flags) = match action {
-            RecoveryCommand::Enter => (StrapSequenceKind::RecoveryEntry, CommandFlags::default()),
-            RecoveryCommand::Exit => (StrapSequenceKind::NormalReboot, CommandFlags::default()),
-            RecoveryCommand::Now => (
-                StrapSequenceKind::RecoveryImmediate,
-                CommandFlags {
-                    force_recovery: true,
-                    ..CommandFlags::default()
-                },
-            ),
-        };
-
-        let command = SequenceCommand::with_flags(sequence, now, CommandSource::UsbHost, flags);
-        self.producer
-            .try_enqueue(command)
-            .map_err(ExecuteError::Queue)?;
-
-        Ok(RecoveryAck {
-            requested_at: now,
-            sequence,
-            command: action,
-        })
+    ) -> Result<CommandOutcome<Instant>, ExecutorError<'_, (), Instant>> {
+        self.executor.execute(line, now, CommandSource::UsbHost)
     }
 }
 
@@ -377,6 +301,29 @@ fn format_recovery_ack(buffer: &mut String<FRAME_CAPACITY>, ack: RecoveryAck<Ins
 }
 
 #[cfg(target_os = "none")]
+fn describe_schedule_error(
+    buffer: &mut String<FRAME_CAPACITY>,
+    error: ScheduleError<(), Instant>,
+    now: Instant,
+) {
+    match error {
+        ScheduleError::Queue(queue) => describe_queue_error(buffer, queue),
+        ScheduleError::MissingTemplate(kind) => {
+            let _ = write!(buffer, "ERR missing-template {}", sequence_label(kind));
+        }
+        ScheduleError::CooldownActive { kind, ready_at } => {
+            let remaining = ready_at.saturating_duration_since(now).as_millis();
+            let _ = write!(
+                buffer,
+                "ERR cooldown {} ready-in={}ms",
+                sequence_label(kind),
+                remaining
+            );
+        }
+    }
+}
+
+#[cfg(target_os = "none")]
 fn describe_queue_error(buffer: &mut String<FRAME_CAPACITY>, error: CommandEnqueueError<()>) {
     match error {
         CommandEnqueueError::QueueFull => {
@@ -392,10 +339,13 @@ fn describe_queue_error(buffer: &mut String<FRAME_CAPACITY>, error: CommandEnque
 }
 
 #[cfg(target_os = "none")]
-enum ExecuteError {
-    Parse(String<FRAME_CAPACITY>),
-    Unsupported(&'static str),
-    Queue(CommandEnqueueError<()>),
+fn sequence_label(kind: StrapSequenceKind) -> &'static str {
+    match kind {
+        StrapSequenceKind::NormalReboot => "normal-reboot",
+        StrapSequenceKind::RecoveryEntry => "recovery-entry",
+        StrapSequenceKind::RecoveryImmediate => "recovery-immediate",
+        StrapSequenceKind::FaultRecovery => "fault-recovery",
+    }
 }
 
 #[cfg(test)]

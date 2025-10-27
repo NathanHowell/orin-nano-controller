@@ -71,7 +71,7 @@ IMPORTANT: please refer to existing `firmware` code for reusable logic that can 
 - [X] T017 [P] [US1] Add host-side unit tests covering `NormalReboot` durations in `controller-core/tests/normal_reboot.rs`.
 - [X] T018 [P] [US1] Bind controller-core strap operations to STM32 pins with defmt telemetry in `firmware/src/straps/orchestrator.rs`.
 - [X] T048 [US1] Wire the firmware REPL plumbing by connecting `usb_task` to CDC0, invoking `ReplSession` from `repl_task`, and routing parsed commands into `COMMAND_QUEUE` in `firmware/src/main.rs`.
-- [ ] T051 [US1] Rebuild the firmware REPL task around the controller-core executor and new `LineBuffer`, handling command parsing, feedback, and cooldown/error reporting in `firmware/src/main.rs`.
+- [X] T051 [US1] Rebuild the firmware REPL task around the controller-core executor and new `LineBuffer`, handling command parsing, feedback, and cooldown/error reporting in `firmware/src/main.rs`.
 - [ ] T052 [US1] Implement the Embassy USB dual-CDC task that provisions CDC0 for the REPL, streams bytes through bounded channels, and manages connect/disconnect flow control in `firmware/src/main.rs` and `firmware/src/usb/mod.rs`.
 - [X] T053 [US1] Reconcile Embassy USB driver versions and supporting crates (e.g., `embassy-usb-driver`, `embassy-futures`) so the firmware bin and controller-core compile cleanly for `thumbv6m-none-eabi` without `std` conflicts.
 - [X] T054 [US1] Remove legacy firmware-only strap/repl/telemetry scaffolding that now lives in `controller-core`, trimming dead modules and aligning imports within `firmware/src`. 

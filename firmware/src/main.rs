@@ -24,11 +24,17 @@ use crate::bridge::{BridgeActivityBus, BridgeQueue};
 #[cfg(target_os = "none")]
 use crate::repl::ReplSession;
 #[cfg(target_os = "none")]
-use crate::straps::CommandSender;
+use crate::straps::CommandProducer;
 #[cfg(target_os = "none")]
 use crate::straps::orchestrator::{HardwareStrapDriver, NoopPowerMonitor, StrapOrchestrator};
 #[cfg(target_os = "none")]
 use crate::telemetry::TelemetryRecorder;
+#[cfg(target_os = "none")]
+use controller_core::orchestrator::SequenceScheduler;
+#[cfg(target_os = "none")]
+use controller_core::repl::commands::CommandExecutor;
+#[cfg(target_os = "none")]
+use controller_core::sequences::{recovery_entry_template, recovery_immediate_template};
 #[cfg(target_os = "none")]
 use embassy_stm32::gpio::{Level, OutputOpenDrain, Speed};
 
@@ -65,9 +71,8 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(usb_task()).expect("failed to spawn USB task");
 
-    let command_sender = COMMAND_QUEUE.sender();
     spawner
-        .spawn(repl_task(command_sender))
+        .spawn(repl_task())
         .expect("failed to spawn REPL task");
     spawner
         .spawn(bridge_task(&BRIDGE_QUEUE, &BRIDGE_ACTIVITY))
@@ -90,8 +95,23 @@ async fn strap_task(
 
 #[cfg(target_os = "none")]
 #[embassy_executor::task]
-async fn repl_task(command_sender: CommandSender<'static>) -> ! {
-    let mut session = ReplSession::new(command_sender);
+async fn repl_task() -> ! {
+    let command_sender = COMMAND_QUEUE.sender();
+    let producer = CommandProducer::new(command_sender);
+    let mut scheduler = SequenceScheduler::new(producer);
+
+    {
+        let templates = scheduler.templates_mut();
+        templates
+            .register(recovery_entry_template())
+            .expect("register recovery entry template");
+        templates
+            .register(recovery_immediate_template())
+            .expect("register recovery immediate template");
+    }
+
+    let executor = CommandExecutor::new(scheduler);
+    let mut session = ReplSession::new(executor);
     session.run().await;
 }
 
