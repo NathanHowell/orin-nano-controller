@@ -8,6 +8,7 @@
 
 use embassy_sync::channel::{Channel, Receiver, Sender};
 use embassy_time::Instant;
+use heapless::Vec;
 
 use crate::straps::{EventId, TelemetryEventKind};
 use crate::telemetry::{TelemetryPayload, TelemetryRecorder};
@@ -32,7 +33,7 @@ pub const BRIDGE_QUEUE_DEPTH: usize = 4;
 pub const ACTIVITY_QUEUE_DEPTH: usize = 4;
 
 /// Fixed-size frame exchanged between bridge tasks.
-pub type BridgeFrame = [u8; BRIDGE_FRAME_SIZE];
+pub type BridgeFrame = Vec<u8, BRIDGE_FRAME_SIZE>;
 
 /// Channel used to shuttle frames between producers and consumers.
 pub type BridgeChannel = Channel<BridgeMutex, BridgeFrame, BRIDGE_QUEUE_DEPTH>;

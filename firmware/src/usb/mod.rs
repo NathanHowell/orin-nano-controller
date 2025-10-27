@@ -101,6 +101,20 @@ where
     pub fn kind(&self) -> UsbPortKind {
         self.kind
     }
+
+    /// Waits until the host enables both IN and OUT endpoints for this port.
+    pub async fn wait_ready(&mut self) {
+        embassy_futures::join::join(
+            self.sender.wait_connection(),
+            self.receiver.wait_connection(),
+        )
+        .await;
+    }
+
+    /// Returns `true` when the host has asserted DTR on this interface.
+    pub fn dtr(&self) -> bool {
+        self.sender.dtr()
+    }
 }
 
 /// Wrapper that owns the dual CDC ACM interfaces and the resulting USB device.
