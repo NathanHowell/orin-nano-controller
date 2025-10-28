@@ -123,7 +123,7 @@ IMPORTANT: please refer to existing `firmware` code for reusable logic that can 
 - [X] T034 [P] [US3] Implement `fault recover retries=` parsing and command dispatch in `controller-core/src/repl/commands.rs`.
 - [X] T035 [P] [US3] Integrate APO control and retry loop handling in `firmware/src/straps/orchestrator.rs`.
 - [X] T050 [P] [US3] Finalize firmware task coordination by sharing telemetry/command state across `strap_task`, `repl_task`, and `bridge_task` to support fault recovery retries in `firmware/src/main.rs`.
-- [ ] T036 [P] [US3] Add emulator fault recovery parity logging to `emulator/src/session.rs` and `specs/001-build-orin-controller/evidence/emulator-fault.log`.
+- [X] T036 [P] [US3] Add emulator fault recovery parity logging to `emulator/src/session.rs` and `specs/001-build-orin-controller/evidence/emulator-fault.log`.
 - [ ] T037 [US3] Capture fault recovery strap trace and SWD checklist at `specs/001-build-orin-controller/evidence/fault-recovery.sal` and `specs/001-build-orin-controller/evidence/fault-recovery-notes.md`.
 - [ ] T038 [US3] Document field recovery workflow and SWD fallback steps in `specs/001-build-orin-controller/quickstart.md` and `specs/001-build-orin-controller/spec.md`.
 - [ ] T039 [P] [US3] Add retry exhaustion tests for fault recovery in `controller-core/tests/fault.rs`.

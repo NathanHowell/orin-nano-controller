@@ -48,6 +48,7 @@ pub const HELP_TOPICS: &[(&str, &str)] = &[
 pub enum TranscriptProfile {
     Reboot,
     Recovery,
+    Fault,
 }
 
 impl TranscriptProfile {
@@ -59,6 +60,9 @@ impl TranscriptProfile {
             TranscriptProfile::Recovery => {
                 "specs/001-build-orin-controller/evidence/emulator-recovery.log"
             }
+            TranscriptProfile::Fault => {
+                "specs/001-build-orin-controller/evidence/emulator-fault.log"
+            }
         }
     }
 
@@ -66,6 +70,7 @@ impl TranscriptProfile {
         match self {
             TranscriptProfile::Reboot => "Orin Controller Emulator reboot transcript",
             TranscriptProfile::Recovery => "Orin Controller Emulator recovery transcript",
+            TranscriptProfile::Fault => "Orin Controller Emulator fault recovery transcript",
         }
     }
 
@@ -74,6 +79,8 @@ impl TranscriptProfile {
             Ok(Self::Reboot)
         } else if tag.eq_ignore_ascii_case("recovery") {
             Ok(Self::Recovery)
+        } else if tag.eq_ignore_ascii_case("fault") {
+            Ok(Self::Fault)
         } else {
             Err(format!("Unknown transcript profile `{tag}`"))
         }

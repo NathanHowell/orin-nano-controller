@@ -15,7 +15,9 @@ use session::{CompletionResponse, Session, TranscriptProfile};
 fn main() -> io::Result<()> {
     let profile = parse_profile().unwrap_or_else(|err| {
         eprintln!("{err}");
-        eprintln!("Usage: emulator [--profile <reboot|recovery>] | emulator <reboot|recovery>");
+        eprintln!(
+            "Usage: emulator [--profile <reboot|recovery|fault>] | emulator <reboot|recovery|fault>"
+        );
         process::exit(2);
     });
 
