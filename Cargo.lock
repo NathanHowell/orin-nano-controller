@@ -234,6 +234,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "defmt-rtt"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93d5a25c99d89c40f5676bec8cefe0614f17f0f40e916f98e345dae941807f9e"
+dependencies = [
+ "critical-section",
+ "defmt",
+]
+
+[[package]]
 name = "document-features"
 version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -700,7 +710,9 @@ dependencies = [
  "controller-core",
  "cortex-m",
  "cortex-m-rt",
+ "critical-section",
  "defmt",
+ "defmt-rtt",
  "embassy-executor",
  "embassy-futures",
  "embassy-stm32",

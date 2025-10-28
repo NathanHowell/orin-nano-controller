@@ -12,6 +12,33 @@ mod telemetry;
 mod usb;
 
 #[cfg(target_os = "none")]
+use defmt_rtt as _;
+#[cfg(target_os = "none")]
+use critical_section::{self, RawRestoreState};
+#[cfg(target_os = "none")]
+use cortex_m::interrupt;
+#[cfg(target_os = "none")]
+use cortex_m::register::primask;
+#[cfg(target_os = "none")]
+struct InterruptCriticalSection;
+#[cfg(target_os = "none")]
+critical_section::set_impl!(InterruptCriticalSection);
+#[cfg(target_os = "none")]
+unsafe impl critical_section::Impl for InterruptCriticalSection {
+    unsafe fn acquire() -> RawRestoreState {
+        let primask = primask::read();
+        interrupt::disable();
+        primask.is_active()
+    }
+
+    unsafe fn release(restore_state: RawRestoreState) {
+        if restore_state {
+            unsafe { interrupt::enable(); }
+        }
+    }
+}
+
+#[cfg(target_os = "none")]
 use core::mem::MaybeUninit;
 #[cfg(target_os = "none")]
 use embassy_executor::Spawner;
