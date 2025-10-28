@@ -21,7 +21,7 @@ description: "Task list template for feature implementation"
 - Firmware target: `firmware/src/`, `firmware/Cargo.toml`, `firmware/.cargo/`
 - Host emulator: `emulator/src/`, `emulator/Cargo.toml`
 - Bench evidence: `specs/001-build-orin-controller/evidence/`
-- Hardware docs: `pcb/orin-nano-controller/README.md`
+- Hardware docs: `pcb/README.md`
 - Feature documentation: `specs/001-build-orin-controller/*.md`
 
 ---

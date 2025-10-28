@@ -5,7 +5,7 @@
 
 ## Summary
 
-Stand up a shared `controller-core` crate that owns strap orchestration, queueing semantics, telemetry events, and the REPL grammar while remaining portable across MCU and host builds. Bind it to the `firmware` crate for STM32G0B1 hardware control and to a new `emulator` crate that exposes the same REPL contract on a host PC, ensuring feature parity. Maintain strict strap timing, recovery automation, and telemetry capture in line with `pcb/orin-nano-controller/README.md`, and validate both targets with evidence logging plus ADC-based power sensing.
+Stand up a shared `controller-core` crate that owns strap orchestration, queueing semantics, telemetry events, and the REPL grammar while remaining portable across MCU and host builds. Bind it to the `firmware` crate for STM32G0B1 hardware control and to a new `emulator` crate that exposes the same REPL contract on a host PC, ensuring feature parity. Maintain strict strap timing, recovery automation, and telemetry capture in line with `pcb/README.md`, and validate both targets with evidence logging plus ADC-based power sensing.
 
 ## Technical Context
 
@@ -24,7 +24,7 @@ Stand up a shared `controller-core` crate that owns strap orchestration, queuein
 
 *Gate status*: Re-validated after introducing the controller-core/firmware/emulator split; no violations detected.
 
-- **Principle I – Unified Pin Contracts**: `controller-core` defines the canonical strap catalog (`StrapLine`) so every target references the same logical pins; `firmware` binds those names to STM32G0B1 pins and SN74LVC07 channels documented in `pcb/orin-nano-controller/README.md`; `emulator` mirrors the same strap identifiers when emitting parity logs to keep host tooling aligned with hardware naming.
+- **Principle I – Unified Pin Contracts**: `controller-core` defines the canonical strap catalog (`StrapLine`) so every target references the same logical pins; `firmware` binds those names to STM32G0B1 pins and SN74LVC07 channels documented in `pcb/README.md`; `emulator` mirrors the same strap identifiers when emitting parity logs to keep host tooling aligned with hardware naming.
 - **Principle II – Deterministic Boot Stewardship**: `controller-core` owns the strap FSM and timing budgets, exposing trait hooks for pin drivers and timers; `firmware` wires those hooks to Embassy tasks (`usb::composite`, `repl::session`, `bridge::uart_task`, `straps::orchestrator`, `telemetry::flusher`) so the MCU enforces RESET/REC/PWR/APO windows; `emulator` executes the same orchestrator against host timers to prove command sequencing and cooldown logic before hardware runs.
 - **Principle III – Hardware-in-the-Loop Assurance**: `controller-core` emits telemetry events that describe strap timings and bridge activity; `firmware` captures bench evidence (logic analyzer traces, defmt logs, SWD recovery notes) per tasks T002/T016/T022/T027 into `specs/001-build-orin-controller/evidence/`; `emulator` records REPL transcripts and parity logs so every workflow can be rehearsed on the host before moving to silicon.
 - **Principle IV – Composable Runtime Architecture**: `controller-core` stays `#![no_std]` with optional `alloc`, exporting traits that compile for `thumbv6m-none-eabi` and host targets; `firmware` implements those traits with Embassy peripherals without introducing dynamic allocation; `emulator` links the same crate under `std`, adding only host I/O facades so behavior remains identical while keeping flash/RAM impact confined to MCU builds.

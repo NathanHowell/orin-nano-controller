@@ -5,7 +5,7 @@
 ### `StrapLine`
 - **Fields**: `name` (`RESET`, `REC`, `PWR`, `APO`), `mcu_pin` (`PA4`, `PA3`, `PA2`, `PA5`), `driver_output` (`SN74LVC07` channel `2Y`, `1Y`, `2Y`, `1Y` respectively), `j14_pin` (`8`, `10`, `12`, `5`), `polarity` (`ActiveLow`), `default_state` (`ReleasedHigh`).
 - **Relationships**: Referenced by every `StrapStep`; owned by `StrapOrchestrator`.
-- **Validation rules**: Mapping must remain in sync with `pcb/orin-nano-controller/orin-nano-controller.kicad_sch` nets `ORST`, `OREC`, `OPWR`, `OAPO` → `/Controller/*_STRAP`.
+- **Validation rules**: Mapping must remain in sync with `pcb/orin-nano-controller.kicad_sch` nets `ORST`, `OREC`, `OPWR`, `OAPO` → `/Controller/*_STRAP`.
 
 ### `StrapSequenceKind`
 - **Fields**: Enumeration values `NormalReboot`, `RecoveryEntry`, `RecoveryImmediate`, `FaultRecovery`.

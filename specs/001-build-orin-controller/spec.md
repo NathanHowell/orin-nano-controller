@@ -11,7 +11,7 @@ Scope now mandates a shared `controller-core` crate that owns strap orchestratio
 
 ### Pin & Signal Map
 
-- J14 strap outputs to Jetson carrier (reference `pcb/orin-nano-controller/README.md`, "Strap Driver (SN74LVC07A implementation)")  
+- J14 strap outputs to Jetson carrier (reference `pcb/README.md`, "Strap Driver (SN74LVC07A implementation)")  
   - J14-8 `RESET*` (open-drain) ← net `STRAP_RESET_L` (Y1); 0–3.3 V, sink ≤ 24 mA; drives Jetson reset.  
   - J14-10 `REC*` (open-drain) ← net `STRAP_RECOVERY_L` (Y2); 0–3.3 V; selects flashing/recovery mode.  
   - J14-12 `PWR*` (open-drain) ← net `STRAP_POWER_BTN_L` (Y3); 0–3.3 V; emulates front-panel power button.  
@@ -21,7 +21,7 @@ Scope now mandates a shared `controller-core` crate that owns strap orchestratio
   - `CDC0` → Interactive REPL for strap commands and diagnostics.  
   - `CDC1` → Transparent UART bridge to the Jetson console.  
   Both present as standard ACM interfaces; no HID or vendor-specific endpoints are exposed.  
-- SWD header J3 exposes MCU programming pins (`SWDIO`, `SWCLK`, `NRST`, `3V3`, `GND`) consistent with `pcb/orin-nano-controller/README.md` "Test Points".  
+- SWD header J3 exposes MCU programming pins (`SWDIO`, `SWCLK`, `NRST`, `3V3`, `GND`) consistent with `pcb/README.md` "Test Points".  
 - TLV75533PDBV LDO (U2) supplies regulated 3.3 V (net `VDD_3V3`) to MCU, strap buffer U3, and sense circuitry; total continuous load must stay below 500 mA with 20% headroom.  
 - PC_LED+ divider (R_LED_HI/R_LED_LO) feeds MCU ADC channel `PC_LED_MON`, providing 0–3.3 V scaled telemetry for Jetson state indication.
 
@@ -140,7 +140,7 @@ A field technician must hard-stop a wedged Jetson and restore normal operation u
 
 ## Assumptions & Dependencies
 
-- Jetson Orin carrier exposes the 12-pin control header compatible with the J14 pinout described in `pcb/orin-nano-controller/README.md`.  
+- Jetson Orin carrier exposes the 12-pin control header compatible with the J14 pinout described in `pcb/README.md`.  
 - Host control software will be delivered separately and can issue high-level sequence commands to the controller.  
 - Lab equipment (logic analyzer, oscilloscope, USB sniffing tools) is available for validation and ongoing diagnostics.  
 - Power input to the controller is a regulated 5 V source capable of supplying at least 1 A headroom for transients.
