@@ -151,7 +151,7 @@ IMPORTANT: please refer to existing `firmware` code for reusable logic that can 
 - [X] T064 Define a portable power-monitor abstraction in `controller-core` and adapt the firmware brown-out handler to use it.
 - [X] T065 Capture the VREFINT-based brown-out detection design (calibration address, thresholds, debounce windows) in `specs/001-build-orin-controller/research.md`.
 - [X] T066 Add a `VrefintPowerMonitor` implementation with unit tests in `controller-core/src/orchestrator/` that translates VDDA samples into `PowerStatus` states using hysteresis.
-- [ ] T067 Implement the STM32G0 ADC sampling helper that reads `VREFINT_CAL` and performs periodic channel-10 conversions in `firmware/src/hw/power.rs`.
+- [X] T067 Implement the STM32G0 ADC sampling helper that reads `VREFINT_CAL` and performs periodic channel-10 conversions in `firmware/src/hw/power.rs`.
 - [ ] T068 Replace `NoopPowerMonitor` with the new driver in the firmware runtime and verify strap orchestration timing still meets requirements.
 - [ ] T069 Record bench evidence (defmt logs + VDDA measurements) demonstrating brown-out detection and recovery in `specs/001-build-orin-controller/evidence/vdda-brownout.md`.
 
