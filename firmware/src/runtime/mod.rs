@@ -15,7 +15,7 @@ use crate::straps;
 use crate::straps::orchestrator::{HardwareStrapDriver, StrapOrchestrator};
 use crate::telemetry::TelemetryRecorder;
 use crate::usb;
-use controller_core::orchestrator::{register_default_templates, VrefintPowerMonitor};
+use controller_core::orchestrator::{VrefintPowerMonitor, register_default_templates};
 use embassy_stm32::adc::Adc;
 
 mod bridge_task;

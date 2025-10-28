@@ -32,6 +32,7 @@ pub struct Replacement {
     pub start: usize,
     pub end: usize,
     pub value: &'static str,
+    pub append_space: bool,
 }
 
 /// Stateless completion engine that mirrors the REPL grammar.
@@ -98,8 +99,11 @@ impl CompletionEngine {
         }
 
         let matches_slice = matches.as_slice();
+        let mut append_space = false;
         let replacement_value = if matches_slice.len() == 1 {
-            Some(matches_slice[0])
+            let candidate = matches_slice[0];
+            append_space = should_append_space(context, candidate);
+            Some(candidate)
         } else {
             let lcp = longest_common_prefix(matches_slice);
             let shared = common_prefix_len_ignore_case(prefix, lcp);
@@ -110,6 +114,7 @@ impl CompletionEngine {
             start: prefix_start,
             end: cursor,
             value,
+            append_space,
         });
 
         CompletionResult {
@@ -200,6 +205,17 @@ fn longest_common_prefix(candidates: &[&'static str]) -> &'static str {
     }
 }
 
+fn should_append_space(context: CompletionContext, candidate: &'static str) -> bool {
+    if !matches!(context, CompletionContext::Root) {
+        return false;
+    }
+
+    !matches!(
+        determine_context(&[candidate]),
+        CompletionContext::Root | CompletionContext::None
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,7 +257,32 @@ mod tests {
         assert_eq!(replacement.start, 0);
         assert_eq!(replacement.end, 3);
         assert_eq!(replacement.value, "reboot");
+        assert!(replacement.append_space);
         assert_eq!(options.as_slice(), ["reboot"]);
+    }
+
+    #[test]
+    fn does_not_append_space_for_status_command() {
+        let engine = CompletionEngine::new();
+        let (replacement, options) = expect_options(engine.complete("statu", 5));
+        let replacement = replacement.expect("expected replacement");
+        assert_eq!(replacement.start, 0);
+        assert_eq!(replacement.end, 5);
+        assert_eq!(replacement.value, "status");
+        assert!(!replacement.append_space);
+        assert_eq!(options.as_slice(), ["status"]);
+    }
+
+    #[test]
+    fn appends_space_for_help_topics() {
+        let engine = CompletionEngine::new();
+        let (replacement, options) = expect_options(engine.complete("hel", 3));
+        let replacement = replacement.expect("expected replacement");
+        assert_eq!(replacement.start, 0);
+        assert_eq!(replacement.end, 3);
+        assert_eq!(replacement.value, "help");
+        assert!(replacement.append_space);
+        assert_eq!(options.as_slice(), ["help"]);
     }
 
     #[test]

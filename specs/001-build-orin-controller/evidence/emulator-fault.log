@@ -2,7 +2,7 @@
 # Timestamps are milliseconds since session start
 
 [+     0 ms] HOST> [TAB] prefix="fa" suffix="" cursor=2
-[+     0 ms] EMU < completion applied: fault (range=0..2)
+[+     0 ms] EMU < completion applied: fault (range=0..2) +space
 [+     0 ms] HOST> [TAB] prefix="fault " suffix="" cursor=6
 [+     0 ms] EMU < completion applied: recover (range=6..6)
 [+     0 ms] HOST> [TAB] prefix="fault r" suffix="" cursor=7
@@ -33,13 +33,13 @@
 [+     0 ms] EMU <   4. PWR* release-high hold=1.000s limits=900ms..1.100s mode=after-duration
 [+     0 ms] EMU <   5. RESET* assert-low hold=20ms min=20ms mode=after-duration
 [+     0 ms] EMU <   6. RESET* release-high hold=0ms limits=unbounded mode=after-duration
-[+  2505 ms] HOST> fault recover retries=1
-[+  2505 ms] EMU < OK fault recover seq=2 at=+2505ms retries=1
-[+  2505 ms] EMU < retry override applied (default 3)
-[+  2505 ms] EMU < FaultRecovery run-duration=1.470s steps=6
-[+  2505 ms] EMU <   1. APO assert-low hold=250ms limits=250ms..250ms mode=after-duration
-[+  2505 ms] EMU <   2. APO release-high hold=0ms limits=unbounded mode=after-duration
-[+  2505 ms] EMU <   3. PWR* assert-low hold=200ms limits=180ms..220ms mode=after-duration
-[+  2505 ms] EMU <   4. PWR* release-high hold=1.000s limits=900ms..1.100s mode=after-duration
-[+  2505 ms] EMU <   5. RESET* assert-low hold=20ms min=20ms mode=after-duration
-[+  2505 ms] EMU <   6. RESET* release-high hold=0ms limits=unbounded mode=after-duration
+[+  2504 ms] HOST> fault recover retries=1
+[+  2504 ms] EMU < OK fault recover seq=2 at=+2504ms retries=1
+[+  2504 ms] EMU < retry override applied (default 3)
+[+  2504 ms] EMU < FaultRecovery run-duration=1.470s steps=6
+[+  2504 ms] EMU <   1. APO assert-low hold=250ms limits=250ms..250ms mode=after-duration
+[+  2504 ms] EMU <   2. APO release-high hold=0ms limits=unbounded mode=after-duration
+[+  2504 ms] EMU <   3. PWR* assert-low hold=200ms limits=180ms..220ms mode=after-duration
+[+  2504 ms] EMU <   4. PWR* release-high hold=1.000s limits=900ms..1.100s mode=after-duration
+[+  2504 ms] EMU <   5. RESET* assert-low hold=20ms min=20ms mode=after-duration
+[+  2504 ms] EMU <   6. RESET* release-high hold=0ms limits=unbounded mode=after-duration

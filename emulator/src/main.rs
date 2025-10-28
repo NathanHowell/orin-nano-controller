@@ -201,7 +201,12 @@ fn apply_replacement(buffer: &mut String, cursor_index: &mut usize, replacement:
     let clamped_start = replacement.start.min(buffer.len());
     let clamped_end = replacement.end.min(buffer.len());
     buffer.replace_range(clamped_start..clamped_end, replacement.value);
-    *cursor_index = clamped_start + replacement.value.len();
+    let mut new_cursor = clamped_start + replacement.value.len();
+    if replacement.append_space {
+        buffer.insert(new_cursor, ' ');
+        new_cursor += 1;
+    }
+    *cursor_index = new_cursor;
 }
 
 fn render_prompt(

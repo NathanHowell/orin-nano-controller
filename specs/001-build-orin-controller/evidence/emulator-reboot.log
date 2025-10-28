@@ -6,7 +6,7 @@
 [+     0 ms] EMU <   reboot
 [+     0 ms] EMU <   recovery
 [+     0 ms] HOST> [TAB] prefix="rebo" suffix="" cursor=4
-[+     0 ms] EMU < completion applied: reboot (range=0..4)
+[+     0 ms] EMU < completion applied: reboot (range=0..4) +space
 [+     0 ms] HOST> [TAB] prefix="reboot " suffix="" cursor=7
 [+     0 ms] EMU < completion options (2)
 [+     0 ms] EMU <   now

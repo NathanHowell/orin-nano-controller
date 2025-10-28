@@ -1,6 +1,4 @@
-use crate::straps::orchestrator::{
-    FirmwarePowerMonitor, HardwareStrapDriver, StrapOrchestrator,
-};
+use crate::straps::orchestrator::{FirmwarePowerMonitor, HardwareStrapDriver, StrapOrchestrator};
 use crate::telemetry::TelemetryRecorder;
 
 #[embassy_executor::task]

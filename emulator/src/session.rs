@@ -590,10 +590,13 @@ impl TranscriptLogger {
         replacement: Option<Replacement>,
     ) -> io::Result<()> {
         let message = match replacement {
-            Some(rep) => format!(
-                "completion applied: {candidate} (range={}..{})",
-                rep.start, rep.end
-            ),
+            Some(rep) => {
+                let trailing = if rep.append_space { " +space" } else { "" };
+                format!(
+                    "completion applied: {candidate} (range={}..{}){trailing}",
+                    rep.start, rep.end
+                )
+            }
             None => format!("completion candidate: {candidate} (no replacement applied)"),
         };
         self.append_line(elapsed, TranscriptRole::Emulator, &message)
