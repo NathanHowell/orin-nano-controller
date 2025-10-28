@@ -47,7 +47,10 @@ use controller_core::orchestrator::SequenceScheduler;
 #[cfg(target_os = "none")]
 use controller_core::repl::commands::CommandExecutor;
 #[cfg(target_os = "none")]
-use controller_core::sequences::{recovery_entry_template, recovery_immediate_template};
+use controller_core::sequences::{
+    SequenceTemplate, fault_recovery_template, normal_reboot_template, recovery_entry_template,
+    recovery_immediate_template,
+};
 #[cfg(target_os = "none")]
 use embassy_stm32::Peri;
 #[cfg(target_os = "none")]
@@ -86,6 +89,14 @@ static BRIDGE_QUEUE: BridgeQueue = BridgeQueue::new();
 static BRIDGE_ACTIVITY: BridgeActivityBus = BridgeActivityBus::new();
 
 #[cfg(target_os = "none")]
+const REGISTERED_TEMPLATES: [SequenceTemplate; 4] = [
+    normal_reboot_template(),
+    recovery_entry_template(),
+    recovery_immediate_template(),
+    fault_recovery_template(),
+];
+
+#[cfg(target_os = "none")]
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let config = hal::Config::default();
@@ -111,8 +122,16 @@ async fn main(spawner: Spawner) {
     );
 
     let command_receiver = COMMAND_QUEUE.receiver();
-    let orchestrator =
+    let mut orchestrator =
         StrapOrchestrator::with_components(command_receiver, NoopPowerMonitor::new(), strap_driver);
+    {
+        let registry = orchestrator.templates_mut();
+        for template in REGISTERED_TEMPLATES {
+            registry
+                .register(template)
+                .expect("strap template registration");
+        }
+    }
     let telemetry = TelemetryRecorder::new();
 
     spawner
@@ -160,12 +179,11 @@ async fn repl_task() -> ! {
 
     {
         let templates = scheduler.templates_mut();
-        templates
-            .register(recovery_entry_template())
-            .expect("register recovery entry template");
-        templates
-            .register(recovery_immediate_template())
-            .expect("register recovery immediate template");
+        for template in REGISTERED_TEMPLATES {
+            templates
+                .register(template)
+                .expect("scheduler template registration");
+        }
     }
 
     let executor = CommandExecutor::new(scheduler);

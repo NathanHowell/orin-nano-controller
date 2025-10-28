@@ -258,7 +258,7 @@ impl<'a> ReplSession<'a> {
             options,
         } = completion;
 
-        let mut options = options;
+        let options = options;
         if options.is_empty() {
             self.emit_bell().await;
             return;
