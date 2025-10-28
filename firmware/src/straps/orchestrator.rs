@@ -12,10 +12,10 @@ use core::convert::TryFrom;
 use crate::bridge::BridgeDisconnectNotice;
 use crate::telemetry::{TelemetryPayload, TelemetryRecorder};
 use embassy_time::{Duration, Instant, Timer};
-use heapless::{Deque, Vec};
+use heapless::Deque;
 use controller_core::orchestrator::{NoopStrapDriver, StrapDriver, retry_budget_for};
 pub use controller_core::orchestrator::{
-    ActiveRunError, CommandRejection, CommandRejectionReason, OrchestratorState,
+    ActiveRunError, CommandRejection, CommandRejectionReason, OrchestratorState, TemplateRegistry,
 };
 
 #[cfg(target_os = "none")]
@@ -24,62 +24,8 @@ use embassy_stm32::gpio::OutputOpenDrain;
 use super::{
     COMMAND_QUEUE_DEPTH, CommandReceiver, EventId, FirmwareInstant, SequenceCommand,
     SequenceError, SequenceOutcome, SequenceRun, SequenceState, SequenceTemplate, StepCompletion,
-    StrapAction, StrapId, StrapLine, StrapSequenceKind, StrapStep, TelemetryEventKind, strap_by_id,
+    StrapAction, StrapId, StrapLine, StrapStep, TelemetryEventKind, strap_by_id,
 };
-
-/// Total number of sequence templates expected for this controller.
-pub const MAX_SEQUENCE_TEMPLATES: usize = 4;
-
-/// Registry tracking strap sequence templates by [`StrapSequenceKind`].
-#[derive(Default)]
-pub struct TemplateRegistry {
-    templates: Vec<SequenceTemplate, MAX_SEQUENCE_TEMPLATES>,
-}
-
-impl TemplateRegistry {
-    /// Creates an empty registry.
-    pub const fn new() -> Self {
-        Self {
-            templates: Vec::new(),
-        }
-    }
-
-    /// Registers (or replaces) a template in the registry.
-    pub fn register(&mut self, template: SequenceTemplate) -> Result<(), TemplateRegistryError> {
-        if let Some(existing) = self
-            .templates
-            .iter_mut()
-            .find(|existing| existing.kind == template.kind)
-        {
-            *existing = template;
-            Ok(())
-        } else {
-            self.templates
-                .push(template)
-                .map_err(|_| TemplateRegistryError::RegistryFull)
-        }
-    }
-
-    /// Looks up a template by kind.
-    pub fn get(&self, kind: StrapSequenceKind) -> Option<&SequenceTemplate> {
-        self.templates.iter().find(|template| template.kind == kind)
-    }
-
-    /// Returns `true` when a template exists for the given kind.
-    pub fn contains(&self, kind: StrapSequenceKind) -> bool {
-        self.get(kind).is_some()
-    }
-
-    /// Returns the number of registered templates.
-    pub fn len(&self) -> usize {
-        self.templates.len()
-    }
-
-    /// Returns an iterator over registered templates.
-    pub fn iter(&self) -> core::slice::Iter<'_, SequenceTemplate> {
-        self.templates.iter()
-    }
-}
 
 fn strap_metadata(line: StrapId) -> StrapLine {
     strap_by_id(line)
@@ -162,7 +108,7 @@ impl<'d> StrapDriver for HardwareStrapDriver<'d> {
 mod tests {
     use super::*;
     use crate::straps::FirmwareInstant;
-    use crate::straps::{CommandQueue, StrapId};
+    use crate::straps::{CommandQueue, StrapId, StrapSequenceKind};
     use controller_core::orchestrator::CommandSource;
     use controller_core::sequences::{fault_recovery_template, normal_reboot_template};
     use embassy_time::{Duration, Instant};
@@ -372,13 +318,6 @@ fn log_strap_drive(line: StrapId, action: StrapAction, timestamp: Instant) {
         strap.j14_pin,
         timestamp.as_micros()
     );
-}
-
-/// Errors that may occur while managing the template registry.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum TemplateRegistryError {
-    /// Registry has reached [`MAX_SEQUENCE_TEMPLATES`].
-    RegistryFull,
 }
 
 #[derive(Clone, Debug)]
