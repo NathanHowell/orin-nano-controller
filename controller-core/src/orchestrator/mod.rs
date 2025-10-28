@@ -11,7 +11,8 @@ use core::{fmt, ops::Add, time::Duration};
 use heapless::Vec;
 
 use crate::sequences::{
-    SequenceTemplate, StepCompletion, StrapSequenceKind, StrapStep, normal_reboot_template,
+    SequenceTemplate, StepCompletion, StrapAction, StrapId, StrapSequenceKind, StrapStep,
+    normal_reboot_template,
 };
 
 /// Identifier used when tracking emitted telemetry events.
@@ -121,6 +122,108 @@ impl SequenceState {
     }
 }
 
+/// Abstraction over the physical strap drivers.
+pub trait StrapDriver {
+    /// Applies the requested action to the strap line.
+    fn apply(&mut self, line: StrapId, action: StrapAction);
+
+    /// Releases all strap lines to their default state.
+    fn release_all(&mut self);
+}
+
+/// Strap driver that performs no hardware interaction.
+#[derive(Copy, Clone, Debug, Default)]
+pub struct NoopStrapDriver;
+
+impl NoopStrapDriver {
+    /// Creates a new no-op strap driver.
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl StrapDriver for NoopStrapDriver {
+    fn apply(&mut self, _: StrapId, _: StrapAction) {}
+
+    fn release_all(&mut self) {}
+}
+
+/// High-level orchestrator lifecycle mirrored by firmware tasks.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum OrchestratorState {
+    Idle,
+    Arming,
+    Running,
+    Cooldown,
+    Completed,
+    Error,
+}
+
+impl OrchestratorState {
+    /// Returns `true` when the orchestrator has reached a terminal state.
+    pub const fn is_terminal(self) -> bool {
+        matches!(self, Self::Completed | Self::Error)
+    }
+}
+
+/// Errors reported when accessing the active run.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ActiveRunError {
+    /// No sequence is currently active.
+    NoActiveRun,
+}
+
+/// Reason a command was rejected by the orchestrator.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum CommandRejectionReason {
+    Busy,
+    MissingTemplate,
+    ControlLinkLost,
+}
+
+/// Tracks the last command rejection for diagnostics.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CommandRejection<TInstant> {
+    command: SequenceCommand<TInstant>,
+    reason: CommandRejectionReason,
+}
+
+impl<TInstant: Copy> CommandRejection<TInstant> {
+    const fn new(command: SequenceCommand<TInstant>, reason: CommandRejectionReason) -> Self {
+        Self { command, reason }
+    }
+
+    /// Builds a BUSY rejection.
+    pub fn busy(command: SequenceCommand<TInstant>) -> Self {
+        Self::new(command, CommandRejectionReason::Busy)
+    }
+
+    /// Builds a rejection caused by a missing template.
+    pub fn missing_template(command: SequenceCommand<TInstant>) -> Self {
+        Self::new(command, CommandRejectionReason::MissingTemplate)
+    }
+
+    /// Builds a rejection caused by a missing control link.
+    pub fn control_link_lost(command: SequenceCommand<TInstant>) -> Self {
+        Self::new(command, CommandRejectionReason::ControlLinkLost)
+    }
+
+    /// Returns the rejection reason.
+    pub const fn reason(&self) -> CommandRejectionReason {
+        self.reason
+    }
+
+    /// Returns the rejected command.
+    pub const fn command(&self) -> &SequenceCommand<TInstant> {
+        &self.command
+    }
+
+    /// Consumes the rejection and returns the command.
+    pub fn into_command(self) -> SequenceCommand<TInstant> {
+        self.command
+    }
+}
+
 /// Failure reported when attempting an invalid state transition.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct TransitionError {
@@ -133,6 +236,20 @@ impl TransitionError {
     pub const fn new(from: SequenceState, to: SequenceState) -> Self {
         Self { from, to }
     }
+}
+
+/// Default retry budget when templates do not provide an override.
+pub const DEFAULT_RETRY_BUDGET: u8 = 1;
+
+/// Determines the retry budget for a sequence command.
+pub fn retry_budget_for<TInstant>(
+    command: &SequenceCommand<TInstant>,
+    template: &SequenceTemplate,
+) -> u8 {
+    command
+        .flags
+        .retry_override
+        .unwrap_or_else(|| template.max_retries.unwrap_or(DEFAULT_RETRY_BUDGET))
 }
 
 /// Error surfaced when a command cannot be enqueued.

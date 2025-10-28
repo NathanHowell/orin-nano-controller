@@ -13,14 +13,18 @@ use crate::bridge::BridgeDisconnectNotice;
 use crate::telemetry::{TelemetryPayload, TelemetryRecorder};
 use embassy_time::{Duration, Instant, Timer};
 use heapless::{Deque, Vec};
+use controller_core::orchestrator::{NoopStrapDriver, StrapDriver, retry_budget_for};
+pub use controller_core::orchestrator::{
+    ActiveRunError, CommandRejection, CommandRejectionReason, OrchestratorState,
+};
 
 #[cfg(target_os = "none")]
 use embassy_stm32::gpio::OutputOpenDrain;
 
 use super::{
-    COMMAND_QUEUE_DEPTH, CommandReceiver, EventId, SequenceCommand, SequenceError, SequenceOutcome,
-    SequenceRun, SequenceState, SequenceTemplate, StepCompletion, StrapAction, StrapId, StrapLine,
-    StrapSequenceKind, StrapStep, TelemetryEventKind, strap_by_id,
+    COMMAND_QUEUE_DEPTH, CommandReceiver, EventId, FirmwareInstant, SequenceCommand,
+    SequenceError, SequenceOutcome, SequenceRun, SequenceState, SequenceTemplate, StepCompletion,
+    StrapAction, StrapId, StrapLine, StrapSequenceKind, StrapStep, TelemetryEventKind, strap_by_id,
 };
 
 /// Total number of sequence templates expected for this controller.
@@ -100,26 +104,6 @@ fn core_duration_to_embassy(duration: core::time::Duration) -> Duration {
 
 fn opt_core_duration_to_embassy(duration: Option<core::time::Duration>) -> Option<Duration> {
     duration.map(core_duration_to_embassy)
-}
-
-pub(crate) trait StrapDriver {
-    fn apply(&mut self, line: StrapId, action: StrapAction);
-    fn release_all(&mut self);
-}
-
-#[derive(Default)]
-pub(crate) struct NoopStrapDriver;
-
-impl NoopStrapDriver {
-    const fn new() -> Self {
-        Self
-    }
-}
-
-impl StrapDriver for NoopStrapDriver {
-    fn apply(&mut self, _: StrapId, _: StrapAction) {}
-
-    fn release_all(&mut self) {}
 }
 
 #[cfg(target_os = "none")]
@@ -422,14 +406,6 @@ fn remaining_delay(queued: &QueuedCommand) -> Option<Duration> {
     })
 }
 
-fn retry_budget_for(command: &SequenceCommand, template: &SequenceTemplate) -> u8 {
-    command
-        .flags
-        .retry_override
-        .unwrap_or_else(|| template.max_retries.unwrap_or(DEFAULT_BROWN_OUT_RETRIES))
-}
-
-const DEFAULT_BROWN_OUT_RETRIES: u8 = 1;
 const DEFAULT_POWER_SAMPLE_PERIOD_MS: u64 = 5;
 const DEFAULT_POWER_STABLE_HOLDOFF_MS: u64 = 25;
 const MIN_PROCESS_SLEEP_MS: u64 = 1;
@@ -553,88 +529,6 @@ fn log_power_recovered(sample: &PowerSample, attempt: u8, holdoff: Duration) {
 #[cfg(not(target_os = "none"))]
 fn log_power_recovered(_: &PowerSample, _: u8, _: Duration) {}
 
-/// High-level orchestrator states mirroring the data-model FSM.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum OrchestratorState {
-    /// No active sequence run; waiting on the command queue.
-    Idle,
-    /// Performing pre-sequence checks and strap preparation.
-    Arming,
-    /// Actively executing strap steps.
-    Running,
-    /// Enforcing the post-sequence cooldown.
-    Cooldown,
-    /// Sequence finished successfully and awaits cleanup.
-    Completed,
-    /// Sequence terminated with an error.
-    Error,
-}
-
-impl OrchestratorState {
-    /// Returns `true` when the state is terminal.
-    pub const fn is_terminal(self) -> bool {
-        matches!(self, Self::Completed | Self::Error)
-    }
-}
-
-/// Reason a command was rejected by the orchestrator.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum CommandRejectionReason {
-    Busy,
-    MissingTemplate,
-    ControlLinkLost,
-}
-
-/// Command rejection detail for the last failed enqueue attempt.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CommandRejection {
-    command: SequenceCommand,
-    reason: CommandRejectionReason,
-}
-
-impl CommandRejection {
-    fn new(command: SequenceCommand, reason: CommandRejectionReason) -> Self {
-        Self { command, reason }
-    }
-
-    /// Builds a BUSY rejection.
-    pub fn busy(command: SequenceCommand) -> Self {
-        Self::new(command, CommandRejectionReason::Busy)
-    }
-
-    /// Builds a rejection caused by a missing template.
-    pub fn missing_template(command: SequenceCommand) -> Self {
-        Self::new(command, CommandRejectionReason::MissingTemplate)
-    }
-
-    /// Builds a rejection caused by a missing USB control link.
-    pub fn control_link_lost(command: SequenceCommand) -> Self {
-        Self::new(command, CommandRejectionReason::ControlLinkLost)
-    }
-
-    /// Returns the rejection reason.
-    pub const fn reason(&self) -> CommandRejectionReason {
-        self.reason
-    }
-
-    /// Returns the command that was rejected.
-    pub fn command(&self) -> &SequenceCommand {
-        &self.command
-    }
-
-    /// Unwraps the rejected command.
-    pub fn into_command(self) -> SequenceCommand {
-        self.command
-    }
-}
-
-/// Error returned when attempting to transition the active sequence.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum TransitionError {
-    /// No sequence is currently active.
-    NoActiveRun,
-}
-
 /// Coordinates strap sequencing based on queued commands.
 pub struct StrapOrchestrator<
     'a,
@@ -645,7 +539,7 @@ pub struct StrapOrchestrator<
     templates: TemplateRegistry,
     strap_driver: D,
     active_run: Option<SequenceRun>,
-    last_rejection: Option<CommandRejection>,
+    last_rejection: Option<CommandRejection<FirmwareInstant>>,
     pending_commands: Deque<QueuedCommand, COMMAND_QUEUE_DEPTH>,
     power_monitor: M,
     last_power_sample: Option<PowerSample>,
@@ -772,12 +666,12 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
     }
 
     /// Returns the last command rejection, if any.
-    pub fn last_rejection(&self) -> Option<&CommandRejection> {
+    pub fn last_rejection(&self) -> Option<&CommandRejection<FirmwareInstant>> {
         self.last_rejection.as_ref()
     }
 
     /// Clears and returns the last command rejection.
-    pub fn take_last_rejection(&mut self) -> Option<CommandRejection> {
+    pub fn take_last_rejection(&mut self) -> Option<CommandRejection<FirmwareInstant>> {
         self.last_rejection.take()
     }
 
@@ -841,7 +735,10 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
     }
 
     /// Begins executing a new sequence command.
-    pub fn begin_run(&mut self, command: SequenceCommand) -> Result<(), CommandRejection> {
+    pub fn begin_run(
+        &mut self,
+        command: SequenceCommand,
+    ) -> Result<(), CommandRejection<FirmwareInstant>> {
         if self.active_run.is_some() {
             return Err(CommandRejection::busy(command));
         }
@@ -873,7 +770,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
         telemetry: &mut TelemetryRecorder,
         outcome: SequenceOutcome,
         timestamp: Instant,
-    ) -> Result<(), TransitionError> {
+    ) -> Result<(), ActiveRunError> {
         let (kind, started_at, requested_at, events_recorded) = match self.active_run.as_ref() {
             Some(run) => (
                 run.command.kind,
@@ -881,7 +778,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
                 run.command.requested_at.into_embassy(),
                 run.emitted_events.len(),
             ),
-            None => return Err(TransitionError::NoActiveRun),
+            None => return Err(ActiveRunError::NoActiveRun),
         };
 
         let start = started_at.or(Some(requested_at));
@@ -893,27 +790,27 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
             run.state = SequenceState::Complete(outcome);
             Ok(())
         } else {
-            Err(TransitionError::NoActiveRun)
+            Err(ActiveRunError::NoActiveRun)
         }
     }
 
     /// Marks the active run as failed.
-    pub fn fail_run(&mut self, error: SequenceError) -> Result<(), TransitionError> {
+    pub fn fail_run(&mut self, error: SequenceError) -> Result<(), ActiveRunError> {
         if let Some(run) = self.active_run.as_mut() {
             run.state = SequenceState::Error(error);
             Ok(())
         } else {
-            Err(TransitionError::NoActiveRun)
+            Err(ActiveRunError::NoActiveRun)
         }
     }
 
     /// Updates the state of the active sequence run.
-    pub fn transition_to(&mut self, next: SequenceState) -> Result<(), TransitionError> {
+    pub fn transition_to(&mut self, next: SequenceState) -> Result<(), ActiveRunError> {
         if let Some(run) = self.active_run.as_mut() {
             run.state = next;
             Ok(())
         } else {
-            Err(TransitionError::NoActiveRun)
+            Err(ActiveRunError::NoActiveRun)
         }
     }
 
@@ -1392,7 +1289,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
         &mut self,
         queued: QueuedCommand,
         telemetry: &mut TelemetryRecorder,
-    ) -> Result<(), CommandRejection> {
+    ) -> Result<(), CommandRejection<FirmwareInstant>> {
         let pending_event = queued.pending_event;
         let not_before = queued.not_before;
         let command = queued.command;
