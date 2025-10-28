@@ -11,10 +11,13 @@ use core::convert::TryFrom;
 
 use crate::bridge::BridgeDisconnectNotice;
 use crate::telemetry::{TelemetryPayload, TelemetryRecorder};
+use controller_core::orchestrator::{
+    self as core_orchestrator, NoopStrapDriver, StrapDriver, retry_budget_for,
+};
 pub use controller_core::orchestrator::{
     ActiveRunError, CommandRejection, CommandRejectionReason, OrchestratorState, TemplateRegistry,
 };
-use controller_core::orchestrator::{NoopStrapDriver, StrapDriver, retry_budget_for};
+use controller_core::telemetry::TelemetryInstant;
 use embassy_time::{Duration, Instant, Timer};
 use heapless::Deque;
 
@@ -26,6 +29,14 @@ use super::{
     SequenceOutcome, SequenceRun, SequenceState, SequenceTemplate, StepCompletion, StrapAction,
     StrapId, StrapLine, StrapStep, TelemetryEventKind, strap_by_id,
 };
+
+pub type PowerSample = core_orchestrator::PowerSample<FirmwareInstant>;
+pub type PowerStatus = core_orchestrator::PowerStatus<FirmwareInstant>;
+pub type NoopPowerMonitor = core_orchestrator::NoopPowerMonitor<FirmwareInstant>;
+
+pub trait PowerMonitor: core_orchestrator::PowerMonitor<Instant = FirmwareInstant> {}
+
+impl<T> PowerMonitor for T where T: core_orchestrator::PowerMonitor<Instant = FirmwareInstant> {}
 
 fn strap_metadata(line: StrapId) -> StrapLine {
     strap_by_id(line)
@@ -358,67 +369,7 @@ fn remaining_delay(queued: &QueuedCommand) -> Option<Duration> {
     })
 }
 
-const DEFAULT_POWER_SAMPLE_PERIOD_MS: u64 = 5;
-const DEFAULT_POWER_STABLE_HOLDOFF_MS: u64 = 25;
 const MIN_PROCESS_SLEEP_MS: u64 = 1;
-
-/// Snapshot describing a single VDD_3V3 observation.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct PowerSample {
-    pub timestamp: Instant,
-    pub millivolts: Option<u16>,
-}
-
-impl PowerSample {
-    /// Creates a new [`PowerSample`] with the provided timestamp and reading.
-    pub const fn new(timestamp: Instant, millivolts: Option<u16>) -> Self {
-        Self {
-            timestamp,
-            millivolts,
-        }
-    }
-}
-
-/// Classification for the most recent power rail observation.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum PowerStatus {
-    Stable(PowerSample),
-    BrownOut(PowerSample),
-    Unknown,
-}
-
-/// Interface provided by a VDD_3V3 voltage monitor.
-pub trait PowerMonitor {
-    /// Returns the most recent power rail classification.
-    fn poll(&mut self) -> PowerStatus;
-
-    /// Interval to wait between consecutive polls while the rail recovers.
-    fn sample_interval(&self) -> Duration {
-        Duration::from_millis(DEFAULT_POWER_SAMPLE_PERIOD_MS)
-    }
-
-    /// Duration that VDD_3V3 must remain above the stability threshold.
-    fn stable_holdoff(&self) -> Duration {
-        Duration::from_millis(DEFAULT_POWER_STABLE_HOLDOFF_MS)
-    }
-}
-
-/// Placeholder monitor used on host builds while hardware integration is pending.
-#[derive(Copy, Clone, Debug, Default)]
-pub struct NoopPowerMonitor;
-
-impl NoopPowerMonitor {
-    /// Creates a new no-op monitor.
-    pub const fn new() -> Self {
-        Self
-    }
-}
-
-impl PowerMonitor for NoopPowerMonitor {
-    fn poll(&mut self) -> PowerStatus {
-        PowerStatus::Unknown
-    }
-}
 
 #[cfg(target_os = "none")]
 fn log_brown_out_detected(sample: &PowerSample, retries_used: u8, retry_budget: u8) {
@@ -461,7 +412,7 @@ fn log_retry_exhausted(budget: u8) {
 fn log_retry_exhausted(_: u8) {}
 
 #[cfg(target_os = "none")]
-fn log_power_recovered(sample: &PowerSample, attempt: u8, holdoff: Duration) {
+fn log_power_recovered(sample: &PowerSample, attempt: u8, holdoff: core::time::Duration) {
     let elapsed = holdoff.as_millis();
     match sample.millivolts {
         Some(mv) => defmt::info!(
@@ -479,7 +430,7 @@ fn log_power_recovered(sample: &PowerSample, attempt: u8, holdoff: Duration) {
 }
 
 #[cfg(not(target_os = "none"))]
-fn log_power_recovered(_: &PowerSample, _: u8, _: Duration) {}
+fn log_power_recovered(_: &PowerSample, _: u8, _: core::time::Duration) {}
 
 /// Coordinates strap sequencing based on queued commands.
 pub struct StrapOrchestrator<
@@ -1135,7 +1086,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
                         telemetry.record(
                             TelemetryEventKind::PowerStable,
                             TelemetryPayload::None,
-                            FirmwareInstant::from(sample.timestamp),
+                            sample.timestamp,
                         );
                         log_power_recovered(&sample, attempt, holdoff);
                         return;
@@ -1147,19 +1098,20 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
                 }
                 PowerStatus::Unknown => {
                     let now = Instant::now();
-                    let sample = PowerSample::new(now, None);
+                    let now_instant = FirmwareInstant::from(now);
+                    let sample = PowerSample::new(now_instant, None);
                     self.last_power_sample = Some(sample);
                     if first_stable.is_none() {
                         first_stable = Some(sample);
                     }
 
                     if let Some(stable_anchor) = first_stable
-                        && now.saturating_duration_since(stable_anchor.timestamp) >= holdoff
+                        && now_instant.saturating_duration_since(stable_anchor.timestamp) >= holdoff
                     {
                         telemetry.record(
                             TelemetryEventKind::PowerStable,
                             TelemetryPayload::None,
-                            FirmwareInstant::from(now),
+                            now_instant,
                         );
                         log_power_recovered(&sample, attempt, holdoff);
                         return;
@@ -1198,7 +1150,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
     }
 
     fn idle_delay(&self) -> Duration {
-        let candidate = self.power_monitor.sample_interval();
+        let candidate = core_duration_to_embassy(self.power_monitor.sample_interval());
         let minimum = Duration::from_millis(MIN_PROCESS_SLEEP_MS);
         if candidate < minimum {
             minimum

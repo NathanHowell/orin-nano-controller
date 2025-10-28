@@ -6,7 +6,7 @@
 //! queue/sequence types that satisfy these traits while reusing the shared
 //! business logic housed in `controller-core`.
 
-use core::{fmt, ops::Add, time::Duration};
+use core::{fmt, marker::PhantomData, ops::Add, time::Duration};
 
 use heapless::Vec;
 
@@ -226,6 +226,78 @@ impl StrapDriver for NoopStrapDriver {
     fn apply(&mut self, _: StrapId, _: StrapAction) {}
 
     fn release_all(&mut self) {}
+}
+
+/// Default interval (in milliseconds) between consecutive power-rail samples.
+pub const DEFAULT_POWER_SAMPLE_PERIOD_MS: u64 = 5;
+/// Default duration (in milliseconds) that the rail must remain above the stability threshold.
+pub const DEFAULT_POWER_STABLE_HOLDOFF_MS: u64 = 25;
+
+/// Snapshot describing a single power-rail observation.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct PowerSample<TInstant> {
+    pub timestamp: TInstant,
+    pub millivolts: Option<u16>,
+}
+
+impl<TInstant> PowerSample<TInstant> {
+    /// Creates a new [`PowerSample`] with the provided timestamp and reading.
+    pub const fn new(timestamp: TInstant, millivolts: Option<u16>) -> Self {
+        Self {
+            timestamp,
+            millivolts,
+        }
+    }
+}
+
+/// Classification for the most recent power-rail observation.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum PowerStatus<TInstant> {
+    Stable(PowerSample<TInstant>),
+    BrownOut(PowerSample<TInstant>),
+    Unknown,
+}
+
+/// Interface provided by a power-rail monitor.
+pub trait PowerMonitor {
+    /// Timestamp type associated with collected power samples.
+    type Instant: Copy;
+
+    /// Returns the most recent power rail classification.
+    fn poll(&mut self) -> PowerStatus<Self::Instant>;
+
+    /// Interval to wait between consecutive polls while the rail recovers.
+    fn sample_interval(&self) -> Duration {
+        Duration::from_millis(DEFAULT_POWER_SAMPLE_PERIOD_MS)
+    }
+
+    /// Duration that the rail must remain above the stability threshold.
+    fn stable_holdoff(&self) -> Duration {
+        Duration::from_millis(DEFAULT_POWER_STABLE_HOLDOFF_MS)
+    }
+}
+
+/// Placeholder monitor used on targets where hardware integration is pending.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+pub struct NoopPowerMonitor<TInstant = ()> {
+    _marker: PhantomData<TInstant>,
+}
+
+impl<TInstant> NoopPowerMonitor<TInstant> {
+    /// Creates a new no-op monitor.
+    pub const fn new() -> Self {
+        Self {
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<TInstant: Copy> PowerMonitor for NoopPowerMonitor<TInstant> {
+    type Instant = TInstant;
+
+    fn poll(&mut self) -> PowerStatus<Self::Instant> {
+        PowerStatus::Unknown
+    }
 }
 
 /// High-level orchestrator lifecycle mirrored by firmware tasks.
