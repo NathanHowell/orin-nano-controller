@@ -6,7 +6,6 @@ use critical_section::{self, RawRestoreState};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32 as hal;
-use embassy_stm32::Peri;
 use embassy_stm32::gpio::{Level, OutputOpenDrain, Speed};
 use embassy_sync::channel::Channel;
 

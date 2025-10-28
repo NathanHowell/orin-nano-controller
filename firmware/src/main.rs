@@ -14,8 +14,5 @@ mod usb;
 #[cfg(target_os = "none")]
 mod runtime;
 
-#[cfg(target_os = "none")]
-pub use runtime::main;
-
 #[cfg(not(target_os = "none"))]
 fn main() {}

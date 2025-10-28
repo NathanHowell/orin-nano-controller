@@ -1,5 +1,4 @@
 use embassy_futures::join::join;
-use embassy_futures::select::{Either3, select3};
 use embassy_stm32 as hal;
 use embassy_stm32::Peri;
 use embassy_stm32::usart::{BufferedUart, Config as UartConfig, DataBits, Parity, StopBits};
