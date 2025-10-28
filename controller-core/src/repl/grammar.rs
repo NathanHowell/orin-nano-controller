@@ -6,6 +6,10 @@
 //! uses `regal` to produce a bounded token stream, while the parser composes
 //! `winnow` combinators over those tokens to build structured command values.
 
+use super::catalog::{
+    self, ChoiceBranch, ChoiceTag, CommandTag, DefaultChoice, HelpTopics, Node, SubcommandBranch,
+    SubcommandTag, ValueSpec,
+};
 use core::fmt;
 use core::ops::Range;
 use core::time::Duration;
@@ -14,7 +18,6 @@ use heapless::Vec as HeaplessVec;
 use regal::IncrementalError;
 use regal::TokenCache;
 use regal_macros::RegalLexer;
-use winnow::combinator::{alt, cut_err, opt, preceded};
 #[allow(deprecated)]
 use winnow::error::ErrorKind;
 use winnow::error::{ErrMode, ParserError};
@@ -369,129 +372,346 @@ fn command<'src, 'slice>() -> impl Parser<Input<'src, 'slice>, Command<'src>, Gr
 where
     'src: 'slice,
 {
-    alt((
-        parse_reboot().map(Command::Reboot),
-        parse_recovery().map(Command::Recovery),
-        parse_fault().map(Command::Fault),
-        parse_status(),
-        parse_help().map(Command::Help),
-    ))
-}
-
-fn parse_reboot<'src, 'slice>()
--> impl Parser<Input<'src, 'slice>, RebootCommand, GrammarError<'src>>
-where
-    'src: 'slice,
-{
     move |input: &mut Input<'src, 'slice>| {
-        let _ = keyword("reboot").parse_next(input)?;
-        opt(alt((
-            keyword("now").map(|_| RebootCommand::Now),
-            parse_delay_arg(),
-        )))
-        .map(|opt| opt.unwrap_or(RebootCommand::Now))
-        .parse_next(input)
-    }
-}
+        let snapshot = *input;
+        let command_token = expect_kind(TokenKind::Ident, "command keyword").parse_next(input)?;
 
-fn parse_delay_arg<'src, 'slice>()
--> impl Parser<Input<'src, 'slice>, RebootCommand, GrammarError<'src>>
-where
-    'src: 'slice,
-{
-    move |input: &mut Input<'src, 'slice>| {
-        let _ = keyword("delay").parse_next(input)?;
-        let duration_token = expect_kind(TokenKind::Duration, "duration").parse_next(input)?;
-        let duration = parse_duration(&duration_token).map_err(ErrMode::Cut)?;
-        Ok(RebootCommand::Delay(duration))
-    }
-}
-
-fn parse_recovery<'src, 'slice>()
--> impl Parser<Input<'src, 'slice>, RecoveryCommand, GrammarError<'src>>
-where
-    'src: 'slice,
-{
-    move |input: &mut Input<'src, 'slice>| {
-        let _ = keyword("recovery").parse_next(input)?;
-        opt(alt((
-            keyword("enter").map(|_| RecoveryCommand::Enter),
-            keyword("exit").map(|_| RecoveryCommand::Exit),
-            keyword("now").map(|_| RecoveryCommand::Now),
-        )))
-        .map(|opt| opt.unwrap_or(RecoveryCommand::Enter))
-        .parse_next(input)
-    }
-}
-
-fn parse_fault<'src, 'slice>() -> impl Parser<Input<'src, 'slice>, FaultCommand, GrammarError<'src>>
-where
-    'src: 'slice,
-{
-    move |input: &mut Input<'src, 'slice>| {
-        let _ = keyword("fault").parse_next(input)?;
-        let _ = keyword("recover").parse_next(input)?;
-        let retries = opt(preceded(
-            keyword("retries"),
-            cut_err(preceded(
-                expect_kind(TokenKind::Equals, "="),
-                expect_kind(TokenKind::Integer, "integer"),
-            )),
-        ))
-        .parse_next(input)?;
-
-        let retries = match retries {
-            Some(token) => {
-                let value = parse_integer(&token).map_err(ErrMode::Cut)?;
-                Some(value)
+        match catalog::find(command_token.lexeme) {
+            Some(spec) => {
+                let mut state = CommandState::new(spec.tag);
+                parse_node(spec.grammar, input, &mut state)?;
+                state.finish()
             }
-            None => None,
-        };
-
-        Ok(FaultCommand { retries })
+            None => {
+                *input = snapshot;
+                Err(ErrMode::Backtrack(GrammarError::unexpected(
+                    "command keyword",
+                    Some(&command_token),
+                )))
+            }
+        }
     }
 }
 
-fn parse_status<'src, 'slice>()
--> impl Parser<Input<'src, 'slice>, Command<'src>, GrammarError<'src>>
+fn parse_node<'src, 'slice>(
+    node: &'static Node,
+    input: &mut Input<'src, 'slice>,
+    state: &mut CommandState<'src>,
+) -> Result<(), ErrMode<GrammarError<'src>>>
 where
     'src: 'slice,
 {
-    move |input: &mut Input<'src, 'slice>| {
-        let _ = keyword("status").parse_next(input)?;
-        Ok(Command::Status)
+    match node {
+        Node::End => Ok(()),
+        Node::OptionalChoice { choices, default } => {
+            parse_optional_choice(input, choices, *default, state)
+        }
+        Node::Subcommands(branches) => parse_subcommands(input, branches, state),
+        Node::Topic { topics, next } => {
+            parse_topic(*topics, input, state)?;
+            parse_node(next, input, state)
+        }
     }
 }
 
-fn parse_help<'src, 'slice>()
--> impl Parser<Input<'src, 'slice>, HelpCommand<'src>, GrammarError<'src>>
+fn parse_optional_choice<'src, 'slice>(
+    input: &mut Input<'src, 'slice>,
+    choices: &'static [ChoiceBranch],
+    default: Option<DefaultChoice>,
+    state: &mut CommandState<'src>,
+) -> Result<(), ErrMode<GrammarError<'src>>>
 where
     'src: 'slice,
 {
-    move |input: &mut Input<'src, 'slice>| {
-        let _ = keyword("help").parse_next(input)?;
-        let topic = opt(expect_kind(TokenKind::Ident, "identifier"))
-            .parse_next(input)?
-            .map(|tok| tok.lexeme);
-        Ok(HelpCommand { topic })
+    match input.split_first() {
+        Some((token, rest)) if token.kind == TokenKind::Ident => {
+            if let Some(branch) = find_choice(choices, token.lexeme) {
+                *input = rest;
+                parse_choice_branch(input, branch, state)
+            } else {
+                Err(ErrMode::Backtrack(GrammarError::unexpected(
+                    choice_expected_label(choices),
+                    Some(token),
+                )))
+            }
+        }
+        Some((token, _)) if token.kind == TokenKind::Eol => {
+            if let Some(default_choice) = default {
+                state.apply_default_choice(default_choice.tag)?;
+                parse_node(default_choice.next, input, state)
+            } else {
+                Ok(())
+            }
+        }
+        Some((token, _)) => Err(ErrMode::Backtrack(GrammarError::unexpected(
+            choice_expected_label(choices),
+            Some(token),
+        ))),
+        None => {
+            if let Some(default_choice) = default {
+                state.apply_default_choice(default_choice.tag)?;
+                parse_node(default_choice.next, input, state)
+            } else {
+                Ok(())
+            }
+        }
     }
 }
 
-fn keyword<'src, 'slice>(
-    expected: &'static str,
-) -> impl Parser<Input<'src, 'slice>, &'src str, GrammarError<'src>>
+fn parse_choice_branch<'src, 'slice>(
+    input: &mut Input<'src, 'slice>,
+    branch: &'static ChoiceBranch,
+    state: &mut CommandState<'src>,
+) -> Result<(), ErrMode<GrammarError<'src>>>
 where
     'src: 'slice,
 {
-    move |input: &mut Input<'src, 'slice>| {
-        let token = expect_kind(TokenKind::Ident, expected).parse_next(input)?;
-        if token.lexeme.eq_ignore_ascii_case(expected) {
-            Ok(token.lexeme)
-        } else {
+    let value = parse_value(input, branch.value)?;
+    state.apply_choice(branch.tag, value)?;
+    parse_node(branch.next, input, state)
+}
+
+fn parse_subcommands<'src, 'slice>(
+    input: &mut Input<'src, 'slice>,
+    branches: &'static [SubcommandBranch],
+    state: &mut CommandState<'src>,
+) -> Result<(), ErrMode<GrammarError<'src>>>
+where
+    'src: 'slice,
+{
+    match input.split_first() {
+        Some((token, rest)) if token.kind == TokenKind::Ident => {
+            if let Some(branch) = branches
+                .iter()
+                .find(|candidate| candidate.name.eq_ignore_ascii_case(token.lexeme))
+            {
+                *input = rest;
+                state.set_subcommand(branch.tag);
+                parse_node(branch.grammar, input, state)
+            } else {
+                Err(ErrMode::Backtrack(GrammarError::unexpected(
+                    branches
+                        .first()
+                        .map(|branch| branch.name)
+                        .unwrap_or("subcommand"),
+                    Some(token),
+                )))
+            }
+        }
+        Some((token, _)) if token.kind == TokenKind::Eol => {
             Err(ErrMode::Backtrack(GrammarError::unexpected(
-                expected,
-                Some(&token),
+                branches
+                    .first()
+                    .map(|branch| branch.name)
+                    .unwrap_or("subcommand"),
+                Some(token),
             )))
+        }
+        Some((token, _)) => Err(ErrMode::Backtrack(GrammarError::unexpected(
+            branches
+                .first()
+                .map(|branch| branch.name)
+                .unwrap_or("subcommand"),
+            Some(token),
+        ))),
+        None => Err(ErrMode::Backtrack(GrammarError::unexpected(
+            branches
+                .first()
+                .map(|branch| branch.name)
+                .unwrap_or("subcommand"),
+            None,
+        ))),
+    }
+}
+
+fn parse_topic<'src, 'slice>(
+    _topics: HelpTopics,
+    input: &mut Input<'src, 'slice>,
+    state: &mut CommandState<'src>,
+) -> Result<(), ErrMode<GrammarError<'src>>>
+where
+    'src: 'slice,
+{
+    state.set_topic(None);
+
+    match input.split_first() {
+        Some((token, rest)) if token.kind == TokenKind::Ident => {
+            state.set_topic(Some(token.lexeme));
+            *input = rest;
+            Ok(())
+        }
+        Some((token, _)) if token.kind == TokenKind::Eol => Ok(()),
+        Some((token, _)) => Err(ErrMode::Backtrack(GrammarError::unexpected(
+            "identifier",
+            Some(token),
+        ))),
+        None => Ok(()),
+    }
+}
+
+fn parse_value<'src, 'slice>(
+    input: &mut Input<'src, 'slice>,
+    spec: ValueSpec,
+) -> Result<ChoiceValue, ErrMode<GrammarError<'src>>>
+where
+    'src: 'slice,
+{
+    match spec {
+        ValueSpec::None => Ok(ChoiceValue::None),
+        ValueSpec::Duration => {
+            let duration_token = expect_kind(TokenKind::Duration, "duration").parse_next(input)?;
+            let duration = parse_duration(&duration_token).map_err(ErrMode::Cut)?;
+            Ok(ChoiceValue::Duration(duration))
+        }
+        ValueSpec::IntegerAssignment { .. } => {
+            let _ = expect_kind(TokenKind::Equals, "=").parse_next(input)?;
+            let integer_token = expect_kind(TokenKind::Integer, "integer").parse_next(input)?;
+            let value = parse_integer(&integer_token).map_err(ErrMode::Cut)?;
+            Ok(ChoiceValue::Integer(value))
+        }
+    }
+}
+
+fn find_choice(choices: &'static [ChoiceBranch], lexeme: &str) -> Option<&'static ChoiceBranch> {
+    choices
+        .iter()
+        .find(|choice| choice.keyword.eq_ignore_ascii_case(lexeme))
+}
+
+fn choice_expected_label(choices: &'static [ChoiceBranch]) -> &'static str {
+    choices
+        .first()
+        .map(|choice| choice.keyword)
+        .unwrap_or("keyword")
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ChoiceValue {
+    None,
+    Duration(Duration),
+    Integer(u8),
+}
+
+enum CommandState<'a> {
+    Reboot {
+        action: Option<RebootCommand>,
+    },
+    Recovery {
+        action: Option<RecoveryCommand>,
+    },
+    Fault {
+        subcommand: Option<SubcommandTag>,
+        retries: Option<u8>,
+    },
+    Status,
+    Help {
+        topic: Option<&'a str>,
+    },
+}
+
+impl<'a> CommandState<'a> {
+    fn new(tag: CommandTag) -> Self {
+        match tag {
+            CommandTag::Reboot => CommandState::Reboot { action: None },
+            CommandTag::Recovery => CommandState::Recovery { action: None },
+            CommandTag::Fault => CommandState::Fault {
+                subcommand: None,
+                retries: None,
+            },
+            CommandTag::Status => CommandState::Status,
+            CommandTag::Help => CommandState::Help { topic: None },
+        }
+    }
+
+    fn apply_choice(
+        &mut self,
+        tag: ChoiceTag,
+        value: ChoiceValue,
+    ) -> Result<(), ErrMode<GrammarError<'a>>> {
+        match (self, tag, value) {
+            (CommandState::Reboot { action }, ChoiceTag::RebootNow, _) => {
+                *action = Some(RebootCommand::Now);
+                Ok(())
+            }
+            (
+                CommandState::Reboot { action },
+                ChoiceTag::RebootDelay,
+                ChoiceValue::Duration(duration),
+            ) => {
+                *action = Some(RebootCommand::Delay(duration));
+                Ok(())
+            }
+            (CommandState::Recovery { action }, ChoiceTag::RecoveryEnter, _) => {
+                *action = Some(RecoveryCommand::Enter);
+                Ok(())
+            }
+            (CommandState::Recovery { action }, ChoiceTag::RecoveryExit, _) => {
+                *action = Some(RecoveryCommand::Exit);
+                Ok(())
+            }
+            (CommandState::Recovery { action }, ChoiceTag::RecoveryNow, _) => {
+                *action = Some(RecoveryCommand::Now);
+                Ok(())
+            }
+            (
+                CommandState::Fault { retries, .. },
+                ChoiceTag::FaultRetries,
+                ChoiceValue::Integer(value),
+            ) => {
+                *retries = Some(value);
+                Ok(())
+            }
+            (_, unexpected_tag, _) => {
+                let _ = unexpected_tag;
+                Err(ErrMode::Backtrack(GrammarError::unexpected("choice", None)))
+            }
+        }
+    }
+
+    fn apply_default_choice(&mut self, tag: ChoiceTag) -> Result<(), ErrMode<GrammarError<'a>>> {
+        self.apply_choice(tag, ChoiceValue::None)
+    }
+
+    fn set_subcommand(&mut self, tag: SubcommandTag) {
+        if let CommandState::Fault { subcommand, .. } = self {
+            *subcommand = Some(tag);
+        } else {
+            unreachable!("subcommands only apply to fault commands");
+        }
+    }
+
+    fn set_topic(&mut self, topic: Option<&'a str>) {
+        if let CommandState::Help { topic: slot } = self {
+            *slot = topic;
+        }
+    }
+
+    fn finish(self) -> Result<Command<'a>, ErrMode<GrammarError<'a>>> {
+        match self {
+            CommandState::Reboot {
+                action: Some(command),
+            } => Ok(Command::Reboot(command)),
+            CommandState::Recovery {
+                action: Some(command),
+            } => Ok(Command::Recovery(command)),
+            CommandState::Fault {
+                subcommand: Some(SubcommandTag::FaultRecover),
+                retries,
+            } => Ok(Command::Fault(FaultCommand { retries })),
+            CommandState::Status => Ok(Command::Status),
+            CommandState::Help { topic } => Ok(Command::Help(HelpCommand { topic })),
+            CommandState::Reboot { action: None } => Err(ErrMode::Backtrack(
+                GrammarError::unexpected("reboot argument", None),
+            )),
+            CommandState::Recovery { action: None } => Err(ErrMode::Backtrack(
+                GrammarError::unexpected("recovery argument", None),
+            )),
+            CommandState::Fault {
+                subcommand: None, ..
+            } => Err(ErrMode::Backtrack(GrammarError::unexpected(
+                "fault subcommand",
+                None,
+            ))),
         }
     }
 }
