@@ -10,11 +10,13 @@ use embassy_stm32::gpio::{Level, OutputOpenDrain, Speed};
 use embassy_sync::channel::Channel;
 
 use crate::bridge::{BridgeActivityBus, BridgeQueue};
+use crate::hw::power;
 use crate::straps;
-use crate::straps::orchestrator::{HardwareStrapDriver, NoopPowerMonitor, StrapOrchestrator};
+use crate::straps::orchestrator::{HardwareStrapDriver, StrapOrchestrator};
 use crate::telemetry::TelemetryRecorder;
 use crate::usb;
-use controller_core::orchestrator::register_default_templates;
+use controller_core::orchestrator::{register_default_templates, VrefintPowerMonitor};
+use embassy_stm32::adc::Adc;
 
 mod bridge_task;
 mod repl_task;
@@ -59,6 +61,7 @@ pub async fn main(spawner: Spawner) {
         USB,
         PA11,
         PA12,
+        ADC1,
         USART5,
         ..
     } = hal::init(config);
@@ -70,9 +73,14 @@ pub async fn main(spawner: Spawner) {
         OutputOpenDrain::new(PA5, Level::High, Speed::Low),
     );
 
+    let adc = Adc::new(ADC1);
+    let sample_provider = power::VrefintAdc::new(adc);
+    let calibration = power::read_vrefint_calibration();
+    let power_monitor = VrefintPowerMonitor::new(calibration, sample_provider);
+
     let command_receiver = COMMAND_QUEUE.receiver();
     let mut orchestrator =
-        StrapOrchestrator::with_components(command_receiver, NoopPowerMonitor::new(), strap_driver);
+        StrapOrchestrator::with_components(command_receiver, power_monitor, strap_driver);
     {
         let registry = orchestrator.templates_mut();
         register_default_templates(registry).expect("strap template registration");

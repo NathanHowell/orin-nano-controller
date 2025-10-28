@@ -33,6 +33,9 @@ use super::{
 pub type PowerSample = core_orchestrator::PowerSample<FirmwareInstant>;
 pub type PowerStatus = core_orchestrator::PowerStatus<FirmwareInstant>;
 pub type NoopPowerMonitor = core_orchestrator::NoopPowerMonitor<FirmwareInstant>;
+#[cfg(target_os = "none")]
+pub type FirmwarePowerMonitor<'d> =
+    core_orchestrator::VrefintPowerMonitor<crate::hw::power::VrefintAdc<'d>>;
 
 pub trait PowerMonitor: core_orchestrator::PowerMonitor<Instant = FirmwareInstant> {}
 
