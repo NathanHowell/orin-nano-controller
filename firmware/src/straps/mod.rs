@@ -10,7 +10,6 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::{Channel, Receiver, Sender, TrySendError};
 use embassy_time::{Duration as EmbassyDuration, Instant as EmbassyInstant};
-use heapless::Vec;
 
 pub use core_orch::{EventId, SequenceError, SequenceOutcome, SequenceState};
 pub use core_seq::{
@@ -22,9 +21,6 @@ use core::ops::Add;
 
 /// Depth of the command queue shared between producers and the orchestrator.
 pub const COMMAND_QUEUE_DEPTH: usize = 4;
-
-/// Maximum number of telemetry events tracked for a single sequence run.
-pub const MAX_EMITTED_EVENTS: usize = 16;
 
 #[cfg(target_os = "none")]
 type StrapMutex = ThreadModeRawMutex;
@@ -43,9 +39,6 @@ pub type CommandSender<'a> = Sender<'a, StrapMutex, SequenceCommand, COMMAND_QUE
 
 /// Convenience receiver type alias for the strap command queue.
 pub type CommandReceiver<'a> = Receiver<'a, StrapMutex, SequenceCommand, COMMAND_QUEUE_DEPTH>;
-
-/// Monotonic timestamp type used across firmware modules.
-pub type Instant = EmbassyInstant;
 
 /// Wrapper around `embassy_time::Instant` that implements the traits expected by controller-core.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -81,74 +74,7 @@ impl Add<core::time::Duration> for FirmwareInstant {
 }
 
 /// Runtime state for an executing strap sequence.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
-pub struct SequenceRun {
-    pub command: SequenceCommand,
-    pub state: SequenceState,
-    pub emitted_events: Vec<EventId, MAX_EMITTED_EVENTS>,
-    pub retry_count: u8,
-    pub waiting_on_bridge: bool,
-    pub sequence_started_at: Option<Instant>,
-    pub(super) current_step_index: Option<usize>,
-    pub(super) step_started_at: Option<Instant>,
-    pub(super) step_deadline: Option<Instant>,
-    pub(super) cooldown_deadline: Option<Instant>,
-}
-
-impl SequenceRun {
-    /// Creates a new [`SequenceRun`] in the arming state.
-    pub fn new(command: SequenceCommand) -> Self {
-        Self {
-            command,
-            state: SequenceState::Arming,
-            emitted_events: Vec::new(),
-            retry_count: 0,
-            waiting_on_bridge: false,
-            sequence_started_at: None,
-            current_step_index: None,
-            step_started_at: None,
-            step_deadline: None,
-            cooldown_deadline: None,
-        }
-    }
-
-    /// Resets telemetry tracking for a retry attempt.
-    pub fn begin_retry(&mut self) {
-        self.retry_count = self.retry_count.saturating_add(1);
-        self.emitted_events.clear();
-        self.waiting_on_bridge = false;
-        self.sequence_started_at = None;
-        self.state = SequenceState::Arming;
-        self.current_step_index = None;
-        self.step_started_at = None;
-        self.step_deadline = None;
-        self.cooldown_deadline = None;
-    }
-
-    /// Records a telemetry event identifier associated with this run.
-    pub fn track_event(&mut self, event_id: EventId) -> bool {
-        self.emitted_events.push(event_id).is_ok()
-    }
-
-    /// Returns the index of the currently executing step, if any.
-    #[allow(dead_code)]
-    pub fn current_step_index(&self) -> Option<usize> {
-        self.current_step_index
-    }
-
-    /// Returns the deadline for the in-flight step, if any.
-    #[allow(dead_code)]
-    pub fn step_deadline(&self) -> Option<Instant> {
-        self.step_deadline
-    }
-
-    /// Returns the deadline for the active cooldown interval, if any.
-    #[allow(dead_code)]
-    pub fn cooldown_deadline(&self) -> Option<Instant> {
-        self.cooldown_deadline
-    }
-}
+pub type SequenceRun = core_orch::SequenceRun<FirmwareInstant>;
 
 /// Adapter that exposes the Embassy channel sender as a `controller-core` producer.
 #[allow(dead_code)]

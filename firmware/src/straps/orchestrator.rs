@@ -11,20 +11,20 @@ use core::convert::TryFrom;
 
 use crate::bridge::BridgeDisconnectNotice;
 use crate::telemetry::{TelemetryPayload, TelemetryRecorder};
-use embassy_time::{Duration, Instant, Timer};
-use heapless::Deque;
-use controller_core::orchestrator::{NoopStrapDriver, StrapDriver, retry_budget_for};
 pub use controller_core::orchestrator::{
     ActiveRunError, CommandRejection, CommandRejectionReason, OrchestratorState, TemplateRegistry,
 };
+use controller_core::orchestrator::{NoopStrapDriver, StrapDriver, retry_budget_for};
+use embassy_time::{Duration, Instant, Timer};
+use heapless::Deque;
 
 #[cfg(target_os = "none")]
 use embassy_stm32::gpio::OutputOpenDrain;
 
 use super::{
-    COMMAND_QUEUE_DEPTH, CommandReceiver, EventId, FirmwareInstant, SequenceCommand,
-    SequenceError, SequenceOutcome, SequenceRun, SequenceState, SequenceTemplate, StepCompletion,
-    StrapAction, StrapId, StrapLine, StrapStep, TelemetryEventKind, strap_by_id,
+    COMMAND_QUEUE_DEPTH, CommandReceiver, EventId, FirmwareInstant, SequenceCommand, SequenceError,
+    SequenceOutcome, SequenceRun, SequenceState, SequenceTemplate, StepCompletion, StrapAction,
+    StrapId, StrapLine, StrapStep, TelemetryEventKind, strap_by_id,
 };
 
 fn strap_metadata(line: StrapId) -> StrapLine {
@@ -138,7 +138,10 @@ mod tests {
         {
             let run = orchestrator.active_run().expect("active run missing");
             assert_eq!(run.current_step_index(), Some(0));
-            assert_eq!(run.step_deadline(), Some(now + Duration::from_millis(200)));
+            assert_eq!(
+                run.step_deadline(),
+                Some((now + Duration::from_millis(200)).into())
+            );
         }
         assert_eq!(telemetry.len(), 1);
         assert_eq!(
@@ -153,7 +156,7 @@ mod tests {
             assert_eq!(run.current_step_index(), Some(1));
             assert_eq!(
                 run.step_deadline(),
-                Some(now + Duration::from_millis(1_000))
+                Some((now + Duration::from_millis(1_000)).into())
             );
         }
         assert_eq!(telemetry.len(), 2);
@@ -167,7 +170,10 @@ mod tests {
         {
             let run = orchestrator.active_run().expect("active run missing");
             assert_eq!(run.current_step_index(), Some(2));
-            assert_eq!(run.step_deadline(), Some(now + Duration::from_millis(20)));
+            assert_eq!(
+                run.step_deadline(),
+                Some((now + Duration::from_millis(20)).into())
+            );
         }
         assert_eq!(
             telemetry.latest().unwrap().event,
@@ -187,11 +193,12 @@ mod tests {
         );
         assert_eq!(telemetry.len(), 4);
 
-        let cooldown_deadline = orchestrator
+        let cooldown_deadline: Instant = orchestrator
             .active_run()
             .expect("active run missing")
             .cooldown_deadline()
-            .expect("cooldown deadline unset");
+            .expect("cooldown deadline unset")
+            .into_embassy();
 
         now = cooldown_deadline;
         orchestrator.drive_active_run(&mut telemetry, now);
@@ -714,13 +721,15 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
             Some(run) => (
                 run.command.kind,
                 run.sequence_started_at,
-                run.command.requested_at.into_embassy(),
+                run.command.requested_at,
                 run.emitted_events.len(),
             ),
             None => return Err(ActiveRunError::NoActiveRun),
         };
 
-        let start = started_at.or(Some(requested_at));
+        let start = started_at
+            .or(Some(requested_at))
+            .map(FirmwareInstant::into_embassy);
         let event_id =
             telemetry.record_sequence_completion(kind, outcome, start, timestamp, events_recorded);
 
@@ -913,7 +922,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
                     StepCompletion::AfterDuration => {
                         let ready = match self.active_run.as_ref().and_then(|run| run.step_deadline)
                         {
-                            Some(deadline) => now >= deadline,
+                            Some(deadline) => now >= Instant::from(deadline),
                             None => true,
                         };
 
@@ -942,13 +951,13 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
     ) -> bool {
         if let Some(run) = self.active_run.as_mut() {
             run.waiting_on_bridge = matches!(step.completion, StepCompletion::OnBridgeActivity);
-            run.step_started_at = Some(now);
+            run.step_started_at = Some(now.into());
             if run.sequence_started_at.is_none() {
-                run.sequence_started_at = Some(now);
+                run.sequence_started_at = Some(now.into());
             }
             let hold = core_duration_to_embassy(step.hold_duration());
             run.step_deadline = match step.completion {
-                StepCompletion::AfterDuration => Some(now + hold),
+                StepCompletion::AfterDuration => Some((now + hold).into()),
                 _ => None,
             };
         } else {
@@ -1004,7 +1013,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
             if cooldown.as_ticks() == 0 {
                 run.cooldown_deadline = None;
             } else {
-                run.cooldown_deadline = Some(now + cooldown);
+                run.cooldown_deadline = Some((now + cooldown).into());
             }
         }
 
@@ -1034,7 +1043,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
             .and_then(|run| run.cooldown_deadline);
 
         match deadline {
-            Some(deadline) if now >= deadline => {
+            Some(deadline) if now >= Instant::from(deadline) => {
                 if let Some(run) = self.active_run.as_mut() {
                     run.cooldown_deadline = None;
                 }
@@ -1044,7 +1053,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
             Some(_) => false,
             None => {
                 if let Some(run) = self.active_run.as_mut() {
-                    run.cooldown_deadline = Some(now + cooldown);
+                    run.cooldown_deadline = Some((now + cooldown).into());
                 }
                 false
             }

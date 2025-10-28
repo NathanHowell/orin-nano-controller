@@ -144,7 +144,7 @@ IMPORTANT: please refer to existing `firmware` code for reusable logic that can 
 - [ ] T047 [P] Record release binary footprint metrics in `specs/001-build-orin-controller/evidence/binary-footprint.md`.
 - [X] T058 Refactor strap orchestrator runtime into `controller-core`, keeping firmware responsible only for STM32 GPIO/USB binding.
 - [X] T059 Replace the firmware-specific strap template registry with the shared `controller-core::orchestrator::TemplateRegistry`.
-- [ ] T060 Move the `SequenceRun` state holder (and related traits) into `controller-core` so host tests can exercise the runtime.
+- [X] T060 Move the `SequenceRun` state holder (and related traits) into `controller-core` so host tests can exercise the runtime.
 - [ ] T061 Promote the bridge activity monitor and telemetry ring buffer into `controller-core`, leaving Embassy channel wiring in firmware.
 - [ ] T062 Split `firmware/src/main.rs` into per-task modules and gate STM32-only imports with module-level `cfg`s.
 - [ ] T063 Introduce a single helper that registers default strap templates for both the REPL scheduler and the strap orchestrator.

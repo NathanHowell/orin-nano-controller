@@ -122,6 +122,85 @@ impl SequenceState {
     }
 }
 
+/// Maximum number of telemetry events tracked for a single sequence run.
+pub const MAX_EMITTED_EVENTS: usize = 16;
+
+/// Runtime state for an executing strap sequence.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SequenceRun<TInstant, const EVENT_CAPACITY: usize = MAX_EMITTED_EVENTS> {
+    pub command: SequenceCommand<TInstant>,
+    pub state: SequenceState,
+    pub emitted_events: Vec<EventId, EVENT_CAPACITY>,
+    pub retry_count: u8,
+    pub waiting_on_bridge: bool,
+    pub sequence_started_at: Option<TInstant>,
+    pub current_step_index: Option<usize>,
+    pub step_started_at: Option<TInstant>,
+    pub step_deadline: Option<TInstant>,
+    pub cooldown_deadline: Option<TInstant>,
+}
+
+impl<TInstant, const EVENT_CAPACITY: usize> SequenceRun<TInstant, EVENT_CAPACITY> {
+    fn reset_bookkeeping(&mut self) {
+        self.emitted_events.clear();
+        self.waiting_on_bridge = false;
+        self.sequence_started_at = None;
+        self.current_step_index = None;
+        self.step_started_at = None;
+        self.step_deadline = None;
+        self.cooldown_deadline = None;
+        self.state = SequenceState::Arming;
+    }
+
+    /// Creates a new [`SequenceRun`] in the arming state.
+    pub fn new(command: SequenceCommand<TInstant>) -> Self {
+        Self {
+            command,
+            state: SequenceState::Arming,
+            emitted_events: Vec::new(),
+            retry_count: 0,
+            waiting_on_bridge: false,
+            sequence_started_at: None,
+            current_step_index: None,
+            step_started_at: None,
+            step_deadline: None,
+            cooldown_deadline: None,
+        }
+    }
+
+    /// Resets telemetry tracking for a retry attempt and increments the counter.
+    pub fn begin_retry(&mut self) {
+        self.retry_count = self.retry_count.saturating_add(1);
+        self.reset_bookkeeping();
+    }
+
+    /// Records a telemetry event identifier associated with this run.
+    pub fn track_event(&mut self, event_id: EventId) -> bool {
+        self.emitted_events.push(event_id).is_ok()
+    }
+
+    /// Returns the index of the currently executing step, if any.
+    pub fn current_step_index(&self) -> Option<usize> {
+        self.current_step_index
+    }
+
+    /// Returns the deadline for the in-flight step, if any.
+    pub fn step_deadline(&self) -> Option<TInstant>
+    where
+        TInstant: Copy,
+    {
+        self.step_deadline
+    }
+
+    /// Returns the deadline for the active cooldown interval, if any.
+    pub fn cooldown_deadline(&self) -> Option<TInstant>
+    where
+        TInstant: Copy,
+    {
+        self.cooldown_deadline
+    }
+}
+
 /// Abstraction over the physical strap drivers.
 pub trait StrapDriver {
     /// Applies the requested action to the strap line.
@@ -444,6 +523,98 @@ pub trait SequenceRunControl: SequenceRunView {
 pub trait SequenceRunStateMachine: SequenceRunControl {}
 
 impl<T> SequenceRunStateMachine for T where T: SequenceRunControl {}
+
+impl<TInstant, const EVENT_CAPACITY: usize> SequenceRunView
+    for SequenceRun<TInstant, EVENT_CAPACITY>
+where
+    TInstant: Copy + Ord,
+{
+    type Instant = TInstant;
+    type EventId = EventId;
+
+    fn command(&self) -> &SequenceCommand<Self::Instant> {
+        &self.command
+    }
+
+    fn state(&self) -> SequenceState {
+        self.state
+    }
+
+    fn retry_count(&self) -> u8 {
+        self.retry_count
+    }
+
+    fn waiting_on_bridge(&self) -> bool {
+        self.waiting_on_bridge
+    }
+
+    fn sequence_started_at(&self) -> Option<Self::Instant> {
+        self.sequence_started_at
+    }
+
+    fn current_step_index(&self) -> Option<usize> {
+        self.current_step_index
+    }
+
+    fn step_deadline(&self) -> Option<Self::Instant> {
+        self.step_deadline
+    }
+
+    fn cooldown_deadline(&self) -> Option<Self::Instant> {
+        self.cooldown_deadline
+    }
+
+    fn emitted_events(&self) -> &[Self::EventId] {
+        self.emitted_events.as_slice()
+    }
+}
+
+impl<TInstant, const EVENT_CAPACITY: usize> SequenceRunControl
+    for SequenceRun<TInstant, EVENT_CAPACITY>
+where
+    TInstant: Copy + Ord,
+{
+    fn set_state(&mut self, next: SequenceState) -> Result<(), TransitionError> {
+        self.state = next;
+        Ok(())
+    }
+
+    fn set_sequence_started_at(&mut self, instant: Option<Self::Instant>) {
+        self.sequence_started_at = instant;
+    }
+
+    fn set_current_step_index(&mut self, index: Option<usize>) {
+        self.current_step_index = index;
+    }
+
+    fn set_step_deadline(&mut self, deadline: Option<Self::Instant>) {
+        self.step_deadline = deadline;
+    }
+
+    fn set_cooldown_deadline(&mut self, deadline: Option<Self::Instant>) {
+        self.cooldown_deadline = deadline;
+    }
+
+    fn set_waiting_on_bridge(&mut self, waiting: bool) {
+        self.waiting_on_bridge = waiting;
+    }
+
+    fn record_event(&mut self, event_id: Self::EventId) -> bool {
+        self.track_event(event_id)
+    }
+
+    fn clear_events(&mut self) {
+        self.emitted_events.clear();
+    }
+
+    fn increment_retry(&mut self) {
+        self.retry_count = self.retry_count.saturating_add(1);
+    }
+
+    fn reset_for_retry(&mut self) {
+        self.reset_bookkeeping();
+    }
+}
 
 /// Total number of distinct [`StrapSequenceKind`] variants.
 pub const SEQUENCE_KIND_COUNT: usize = 4;
@@ -921,128 +1092,14 @@ mod tests {
         }
     }
 
-    #[derive(Clone)]
-    struct MockRun {
-        command: SequenceCommand<MockInstant>,
-        state: SequenceState,
-        retry_count: u8,
-        waiting_on_bridge: bool,
-        sequence_started_at: Option<MockInstant>,
-        current_step_index: Option<usize>,
-        step_deadline: Option<MockInstant>,
-        cooldown_deadline: Option<MockInstant>,
-        events: HeaplessVec<EventId, 8>,
-    }
+    fn new_sequence_run() -> SequenceRun<MockInstant, 8> {
+        let command = SequenceCommand::new(
+            StrapSequenceKind::NormalReboot,
+            MockInstant::micros(0),
+            CommandSource::UsbHost,
+        );
 
-    impl MockRun {
-        fn new() -> Self {
-            Self {
-                command: SequenceCommand::new(
-                    StrapSequenceKind::NormalReboot,
-                    MockInstant::micros(0),
-                    CommandSource::UsbHost,
-                ),
-                state: SequenceState::Executing,
-                retry_count: 0,
-                waiting_on_bridge: false,
-                sequence_started_at: None,
-                current_step_index: Some(0),
-                step_deadline: None,
-                cooldown_deadline: None,
-                events: HeaplessVec::new(),
-            }
-        }
-    }
-
-    impl SequenceRunView for MockRun {
-        type Instant = MockInstant;
-        type EventId = EventId;
-
-        fn command(&self) -> &SequenceCommand<Self::Instant> {
-            &self.command
-        }
-
-        fn state(&self) -> SequenceState {
-            self.state
-        }
-
-        fn retry_count(&self) -> u8 {
-            self.retry_count
-        }
-
-        fn waiting_on_bridge(&self) -> bool {
-            self.waiting_on_bridge
-        }
-
-        fn sequence_started_at(&self) -> Option<Self::Instant> {
-            self.sequence_started_at
-        }
-
-        fn current_step_index(&self) -> Option<usize> {
-            self.current_step_index
-        }
-
-        fn step_deadline(&self) -> Option<Self::Instant> {
-            self.step_deadline
-        }
-
-        fn cooldown_deadline(&self) -> Option<Self::Instant> {
-            self.cooldown_deadline
-        }
-
-        fn emitted_events(&self) -> &[Self::EventId] {
-            self.events.as_slice()
-        }
-    }
-
-    impl SequenceRunControl for MockRun {
-        fn set_state(&mut self, next: SequenceState) -> Result<(), TransitionError> {
-            self.state = next;
-            Ok(())
-        }
-
-        fn set_sequence_started_at(&mut self, instant: Option<Self::Instant>) {
-            self.sequence_started_at = instant;
-        }
-
-        fn set_current_step_index(&mut self, index: Option<usize>) {
-            self.current_step_index = index;
-        }
-
-        fn set_step_deadline(&mut self, deadline: Option<Self::Instant>) {
-            self.step_deadline = deadline;
-        }
-
-        fn set_cooldown_deadline(&mut self, deadline: Option<Self::Instant>) {
-            self.cooldown_deadline = deadline;
-        }
-
-        fn set_waiting_on_bridge(&mut self, waiting: bool) {
-            self.waiting_on_bridge = waiting;
-        }
-
-        fn record_event(&mut self, event_id: Self::EventId) -> bool {
-            self.events.push(event_id).is_ok()
-        }
-
-        fn clear_events(&mut self) {
-            self.events.clear();
-        }
-
-        fn increment_retry(&mut self) {
-            self.retry_count = self.retry_count.saturating_add(1);
-        }
-
-        fn reset_for_retry(&mut self) {
-            self.retry_count = 0;
-            self.state = SequenceState::Arming;
-            self.waiting_on_bridge = false;
-            self.sequence_started_at = None;
-            self.current_step_index = None;
-            self.step_deadline = None;
-            self.cooldown_deadline = None;
-            self.events.clear();
-        }
+        SequenceRun::new(command)
     }
 
     #[test]
@@ -1134,7 +1191,7 @@ mod tests {
 
     #[test]
     fn bridge_wait_sets_flag_and_deadline() {
-        let mut run = MockRun::new();
+        let mut run = new_sequence_run();
         let config = BridgeHoldConfig::new(Duration::from_secs(5));
         let step = StrapStep::new(
             StrapId::Rec,
@@ -1154,7 +1211,7 @@ mod tests {
 
     #[test]
     fn satisfy_bridge_wait_clears_state() {
-        let mut run = MockRun::new();
+        let mut run = new_sequence_run();
         let config = BridgeHoldConfig::default();
         let step = StrapStep::new(
             StrapId::Rec,
@@ -1174,7 +1231,7 @@ mod tests {
 
     #[test]
     fn bridge_wait_timeout_detects_expiry() {
-        let mut run = MockRun::new();
+        let mut run = new_sequence_run();
         let config = BridgeHoldConfig::new(Duration::from_secs(2));
         let step = StrapStep::new(
             StrapId::Rec,
@@ -1197,7 +1254,7 @@ mod tests {
 
     #[test]
     fn bridge_wait_without_timeout_skips_deadline() {
-        let mut run = MockRun::new();
+        let mut run = new_sequence_run();
         let config = BridgeHoldConfig::new(Duration::from_secs(0));
         let step = StrapStep::new(
             StrapId::Rec,
