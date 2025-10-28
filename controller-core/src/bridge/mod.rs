@@ -182,6 +182,15 @@ where
     }
 }
 
+impl<TInstant> Default for BridgeActivityMonitor<TInstant>
+where
+    TInstant: Copy,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -134,7 +134,7 @@ IMPORTANT: please refer to existing `firmware` code for reusable logic that can 
 
 **Purpose**: Finalize diagnostics, evidence, and cross-story validation before handoff.
 
-- [ ] T040 Run `cargo clippy --all-targets` from the workspace `Cargo.toml` and resolve lints across controller-core, firmware, and emulator crates.
+- [X] T040 Run `cargo clippy --all-targets` from the workspace `Cargo.toml` and resolve lints across controller-core, firmware, and emulator crates.
 - [ ] T041 [P] Summarize collected artifacts in `specs/001-build-orin-controller/evidence/README.md`.
 - [ ] T042 [P] Capture brown-out retry defmt logs in `specs/001-build-orin-controller/evidence/brownout-retry.log`.
 - [ ] T043 [P] Capture USB disconnect safe-state behavior in `specs/001-build-orin-controller/evidence/usb-disconnect.log`.

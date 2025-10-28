@@ -65,15 +65,15 @@ impl TelemetryRecorder {
     ) -> EventId {
         let id = self.inner.record_strap_transition(line, action, timestamp);
 
-        if let Some(record) = self.inner.latest().copied() {
-            if let TelemetryPayload::Strap(details) = record.details {
-                log_strap_transition(
-                    line,
-                    action,
-                    record.timestamp,
-                    details.elapsed_since_previous,
-                );
-            }
+        if let Some(record) = self.inner.latest().copied()
+            && let TelemetryPayload::Strap(details) = record.details
+        {
+            log_strap_transition(
+                line,
+                action,
+                record.timestamp,
+                details.elapsed_since_previous,
+            );
         }
 
         id
@@ -91,10 +91,10 @@ impl TelemetryRecorder {
             .inner
             .record_command_pending(kind, queue_depth, requested_at, timestamp);
 
-        if let Some(record) = self.inner.latest().copied() {
-            if let TelemetryPayload::Command(details) = record.details {
-                log_command_event(CommandStage::Pending, kind, record.timestamp, details);
-            }
+        if let Some(record) = self.inner.latest().copied()
+            && let TelemetryPayload::Command(details) = record.details
+        {
+            log_command_event(CommandStage::Pending, kind, record.timestamp, details);
         }
 
         id
@@ -112,10 +112,10 @@ impl TelemetryRecorder {
             .inner
             .record_command_started(kind, queue_depth, requested_at, timestamp);
 
-        if let Some(record) = self.inner.latest().copied() {
-            if let TelemetryPayload::Command(details) = record.details {
-                log_command_event(CommandStage::Started, kind, record.timestamp, details);
-            }
+        if let Some(record) = self.inner.latest().copied()
+            && let TelemetryPayload::Command(details) = record.details
+        {
+            log_command_event(CommandStage::Started, kind, record.timestamp, details);
         }
 
         id
@@ -138,10 +138,10 @@ impl TelemetryRecorder {
             events_recorded,
         );
 
-        if let Some(record) = self.inner.latest().copied() {
-            if let TelemetryPayload::Sequence(details) = record.details {
-                log_sequence_completion(kind, outcome, record.timestamp, details);
-            }
+        if let Some(record) = self.inner.latest().copied()
+            && let TelemetryPayload::Sequence(details) = record.details
+        {
+            log_sequence_completion(kind, outcome, record.timestamp, details);
         }
 
         id

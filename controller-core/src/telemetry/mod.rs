@@ -289,6 +289,11 @@ where
         self.ring.len()
     }
 
+    /// Returns `true` when no telemetry records are stored.
+    pub fn is_empty(&self) -> bool {
+        self.ring.is_empty()
+    }
+
     /// Records a strap transition and captures elapsed time since the previous transition.
     pub fn record_strap_transition(
         &mut self,
