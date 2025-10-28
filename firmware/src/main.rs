@@ -318,8 +318,8 @@ async fn usb_task(
     let mut composite = usb::UsbComposite::new(driver, storage, usb::UsbDeviceStrings::default());
 
     let usb::CdcAcmHandle {
-        sender: mut repl_sender,
-        receiver: mut repl_receiver,
+        sender: repl_sender,
+        receiver: repl_receiver,
         control: repl_control,
         ..
     } = composite
@@ -327,8 +327,8 @@ async fn usb_task(
         .expect("REPL CDC interface unavailable");
 
     let usb::CdcAcmHandle {
-        sender: mut bridge_sender,
-        receiver: mut bridge_receiver,
+        sender: bridge_sender,
+        receiver: bridge_receiver,
         control: bridge_control,
         ..
     } = composite
@@ -337,175 +337,186 @@ async fn usb_task(
 
     let mut device = composite.device;
 
-    let repl_future = async move {
-        let repl_rx_queue = REPL_RX_QUEUE.sender();
-        let repl_tx_queue = REPL_TX_QUEUE.receiver();
-        let mut ingress = [0u8; usb::MAX_PACKET_SIZE as usize];
-        let mut tx_packet = [0u8; usb::MAX_PACKET_SIZE as usize];
-        let mut pending_tx: Option<ReplFrame> = None;
-
-        loop {
-            embassy_futures::join::join(
-                repl_receiver.wait_connection(),
-                repl_sender.wait_connection(),
-            )
-            .await;
-            wait_for_dtr(&repl_control, &mut repl_sender).await;
-            pending_tx.take();
-
-            defmt::info!("usb: REPL interface connected");
-
-            loop {
-                match select3(
-                    repl_receiver.read_packet(&mut ingress),
-                    async {
-                        if pending_tx.is_none() {
-                            pending_tx = Some(repl_tx_queue.receive().await);
-                        }
-
-                        let frame = pending_tx
-                            .as_ref()
-                            .expect("pending frame missing during REPL write");
-                        let len = frame.len().min(tx_packet.len());
-                        tx_packet[..len].copy_from_slice(&frame.as_slice()[..len]);
-
-                        match repl_sender.write_packet(&tx_packet[..len]).await {
-                            Ok(()) => {
-                                pending_tx.take();
-                                Ok(len)
-                            }
-                            Err(err) => Err(err),
-                        }
-                    },
-                    repl_control.control_changed(),
-                )
-                .await
-                {
-                    Either3::First(Ok(count)) => {
-                        if count == 0 {
-                            continue;
-                        }
-
-                        let mut frame = ReplFrame::new();
-                        if frame.extend_from_slice(&ingress[..count]).is_err() {
-                            defmt::warn!("usb: dropping REPL frame len={} (overflow)", count);
-                            continue;
-                        }
-
-                        repl_rx_queue.send(frame).await;
-                    }
-                    Either3::First(Err(EndpointError::Disabled)) => {
-                        defmt::warn!("usb: REPL interface disabled");
-                        break;
-                    }
-                    Either3::First(Err(_)) => {
-                        defmt::warn!("usb: REPL read error");
-                    }
-                    Either3::Second(Ok(_)) => {}
-                    Either3::Second(Err(EndpointError::Disabled)) => {
-                        defmt::warn!("usb: REPL write disabled");
-                        break;
-                    }
-                    Either3::Second(Err(_)) => {
-                        defmt::warn!("usb: REPL write error");
-                    }
-                    Either3::Third(()) => {
-                        if !repl_sender.dtr() {
-                            defmt::warn!("usb: REPL host dropped DTR");
-                            pending_tx.take();
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-    };
-
-    let bridge_future = async move {
-        let usb_to_ttl = BRIDGE_QUEUE.usb_to_ttl_sender();
-        let ttl_to_usb = BRIDGE_QUEUE.ttl_to_usb_receiver();
-        let mut ingress = [0u8; usb::MAX_PACKET_SIZE as usize];
-        let mut tx_packet = [0u8; usb::MAX_PACKET_SIZE as usize];
-        let mut pending_tx: Option<BridgeFrame> = None;
-
-        loop {
-            embassy_futures::join::join(
-                bridge_receiver.wait_connection(),
-                bridge_sender.wait_connection(),
-            )
-            .await;
-            wait_for_dtr(&bridge_control, &mut bridge_sender).await;
-
-            defmt::info!("usb: bridge interface connected");
-
-            loop {
-                match select3(
-                    bridge_receiver.read_packet(&mut ingress),
-                    async {
-                        if pending_tx.is_none() {
-                            pending_tx = Some(ttl_to_usb.receive().await);
-                        }
-
-                        let frame = pending_tx
-                            .as_ref()
-                            .expect("pending frame missing during bridge write");
-                        let len = frame.len().min(tx_packet.len());
-                        tx_packet[..len].copy_from_slice(&frame.as_slice()[..len]);
-
-                        match bridge_sender.write_packet(&tx_packet[..len]).await {
-                            Ok(()) => {
-                                pending_tx.take();
-                                Ok(len)
-                            }
-                            Err(err) => Err(err),
-                        }
-                    },
-                    bridge_control.control_changed(),
-                )
-                .await
-                {
-                    Either3::First(Ok(count)) => {
-                        if count == 0 {
-                            continue;
-                        }
-
-                        let mut frame = BridgeFrame::new();
-                        if frame.extend_from_slice(&ingress[..count]).is_err() {
-                            defmt::warn!("usb: dropping bridge frame len={} (overflow)", count);
-                            continue;
-                        }
-
-                        usb_to_ttl.send(frame).await;
-                    }
-                    Either3::First(Err(EndpointError::Disabled)) => {
-                        defmt::warn!("usb: bridge interface disabled");
-                        break;
-                    }
-                    Either3::First(Err(_)) => {
-                        defmt::warn!("usb: bridge read error");
-                    }
-                    Either3::Second(Ok(_)) => {}
-                    Either3::Second(Err(EndpointError::Disabled)) => {
-                        defmt::warn!("usb: bridge write disabled");
-                        break;
-                    }
-                    Either3::Second(Err(_)) => {
-                        defmt::warn!("usb: bridge write error");
-                    }
-                    Either3::Third(()) => {
-                        if !bridge_sender.dtr() {
-                            defmt::warn!("usb: bridge host dropped DTR");
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-    };
+    let repl_future = run_repl_interface(repl_sender, repl_receiver, repl_control);
+    let bridge_future = run_bridge_interface(bridge_sender, bridge_receiver, bridge_control);
 
     join3(device.run(), repl_future, bridge_future).await;
     loop {
         core::future::pending::<()>().await;
+    }
+}
+
+#[cfg(target_os = "none")]
+async fn run_repl_interface<D>(
+    mut sender: embassy_usb::class::cdc_acm::Sender<'static, D>,
+    mut receiver: embassy_usb::class::cdc_acm::Receiver<'static, D>,
+    control: embassy_usb::class::cdc_acm::ControlChanged<'static>,
+) -> !
+where
+    D: embassy_usb::driver::Driver<'static>,
+{
+    let repl_rx_queue = REPL_RX_QUEUE.sender();
+    let repl_tx_queue = REPL_TX_QUEUE.receiver();
+    let mut ingress = [0u8; usb::MAX_PACKET_SIZE as usize];
+    let mut tx_packet = [0u8; usb::MAX_PACKET_SIZE as usize];
+    let mut pending_tx: Option<ReplFrame> = None;
+
+    loop {
+        embassy_futures::join::join(receiver.wait_connection(), sender.wait_connection()).await;
+        wait_for_dtr(&control, &mut sender).await;
+        pending_tx.take();
+
+        defmt::info!("usb: REPL interface connected");
+
+        loop {
+            match select3(
+                receiver.read_packet(&mut ingress),
+                async {
+                    if pending_tx.is_none() {
+                        pending_tx = Some(repl_tx_queue.receive().await);
+                    }
+
+                    let frame = pending_tx
+                        .as_ref()
+                        .expect("pending frame missing during REPL write");
+                    let len = frame.len().min(tx_packet.len());
+                    tx_packet[..len].copy_from_slice(&frame.as_slice()[..len]);
+
+                    match sender.write_packet(&tx_packet[..len]).await {
+                        Ok(()) => {
+                            pending_tx.take();
+                            Ok(len)
+                        }
+                        Err(err) => Err(err),
+                    }
+                },
+                control.control_changed(),
+            )
+            .await
+            {
+                Either3::First(Ok(count)) => {
+                    if count == 0 {
+                        continue;
+                    }
+
+                    let mut frame = ReplFrame::new();
+                    if frame.extend_from_slice(&ingress[..count]).is_err() {
+                        defmt::warn!("usb: dropping REPL frame len={} (overflow)", count);
+                        continue;
+                    }
+
+                    repl_rx_queue.send(frame).await;
+                }
+                Either3::First(Err(EndpointError::Disabled)) => {
+                    defmt::warn!("usb: REPL interface disabled");
+                    break;
+                }
+                Either3::First(Err(_)) => {
+                    defmt::warn!("usb: REPL read error");
+                }
+                Either3::Second(Ok(_)) => {}
+                Either3::Second(Err(EndpointError::Disabled)) => {
+                    defmt::warn!("usb: REPL write disabled");
+                    break;
+                }
+                Either3::Second(Err(_)) => {
+                    defmt::warn!("usb: REPL write error");
+                }
+                Either3::Third(()) => {
+                    if !sender.dtr() {
+                        defmt::warn!("usb: REPL host dropped DTR");
+                        pending_tx.take();
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "none")]
+async fn run_bridge_interface<D>(
+    mut sender: embassy_usb::class::cdc_acm::Sender<'static, D>,
+    mut receiver: embassy_usb::class::cdc_acm::Receiver<'static, D>,
+    control: embassy_usb::class::cdc_acm::ControlChanged<'static>,
+) -> !
+where
+    D: embassy_usb::driver::Driver<'static>,
+{
+    let usb_to_ttl = BRIDGE_QUEUE.usb_to_ttl_sender();
+    let ttl_to_usb = BRIDGE_QUEUE.ttl_to_usb_receiver();
+    let mut ingress = [0u8; usb::MAX_PACKET_SIZE as usize];
+    let mut tx_packet = [0u8; usb::MAX_PACKET_SIZE as usize];
+    let mut pending_tx: Option<BridgeFrame> = None;
+
+    loop {
+        embassy_futures::join::join(receiver.wait_connection(), sender.wait_connection()).await;
+        wait_for_dtr(&control, &mut sender).await;
+
+        defmt::info!("usb: bridge interface connected");
+
+        loop {
+            match select3(
+                receiver.read_packet(&mut ingress),
+                async {
+                    if pending_tx.is_none() {
+                        pending_tx = Some(ttl_to_usb.receive().await);
+                    }
+
+                    let frame = pending_tx
+                        .as_ref()
+                        .expect("pending frame missing during bridge write");
+                    let len = frame.len().min(tx_packet.len());
+                    tx_packet[..len].copy_from_slice(&frame.as_slice()[..len]);
+
+                    match sender.write_packet(&tx_packet[..len]).await {
+                        Ok(()) => {
+                            pending_tx.take();
+                            Ok(len)
+                        }
+                        Err(err) => Err(err),
+                    }
+                },
+                control.control_changed(),
+            )
+            .await
+            {
+                Either3::First(Ok(count)) => {
+                    if count == 0 {
+                        continue;
+                    }
+
+                    let mut frame = BridgeFrame::new();
+                    if frame.extend_from_slice(&ingress[..count]).is_err() {
+                        defmt::warn!("usb: dropping bridge frame len={} (overflow)", count);
+                        continue;
+                    }
+
+                    usb_to_ttl.send(frame).await;
+                }
+                Either3::First(Err(EndpointError::Disabled)) => {
+                    defmt::warn!("usb: bridge interface disabled");
+                    break;
+                }
+                Either3::First(Err(_)) => {
+                    defmt::warn!("usb: bridge read error");
+                }
+                Either3::Second(Ok(_)) => {}
+                Either3::Second(Err(EndpointError::Disabled)) => {
+                    defmt::warn!("usb: bridge write disabled");
+                    break;
+                }
+                Either3::Second(Err(_)) => {
+                    defmt::warn!("usb: bridge write error");
+                }
+                Either3::Third(()) => {
+                    if !sender.dtr() {
+                        defmt::warn!("usb: bridge host dropped DTR");
+                        break;
+                    }
+                }
+            }
+        }
     }
 }
 
