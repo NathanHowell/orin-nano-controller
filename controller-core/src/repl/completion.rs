@@ -3,9 +3,9 @@
 //! The line editor can invoke this module to look up suggestions based on the
 //! current buffer contents and cursor position without pulling in `std`.
 
+use super::grammar::{self, Command, GrammarErrorKind, Token, TokenKind};
 use heapless::Vec as HeaplessVec;
 
-const MAX_CONTEXT_TOKENS: usize = 4;
 const MAX_SUGGESTIONS: usize = 16;
 
 const ROOT_COMMANDS: &[&str] = &["reboot", "recovery", "fault", "status", "help"];
@@ -63,12 +63,27 @@ impl CompletionEngine {
         let prefix = &upto_cursor[prefix_start..];
         let leading = &upto_cursor[..prefix_start];
 
-        let mut context_tokens: HeaplessVec<&str, MAX_CONTEXT_TOKENS> = HeaplessVec::new();
-        for token in leading.split_whitespace() {
-            let _ = context_tokens.push(token);
+        let leading_tokens = match grammar::lex(leading) {
+            Ok(tokens) => tokens,
+            Err(_) => {
+                return CompletionResult {
+                    replacement: None,
+                    options: HeaplessVec::new(),
+                };
+            }
+        };
+
+        if leading_tokens
+            .iter()
+            .any(|token| token.kind == TokenKind::Error)
+        {
+            return CompletionResult {
+                replacement: None,
+                options: HeaplessVec::new(),
+            };
         }
 
-        let context = determine_context(context_tokens.as_slice());
+        let context = determine_context(leading_tokens.as_slice());
         let candidates = match context {
             CompletionContext::Root => ROOT_COMMANDS,
             CompletionContext::RebootArg => REBOOT_ARGS,
@@ -135,21 +150,79 @@ enum CompletionContext {
     None,
 }
 
-fn determine_context(tokens: &[&str]) -> CompletionContext {
-    match tokens {
-        [] => CompletionContext::Root,
-        [first] if equals_ignore_ascii_case(first, "reboot") => CompletionContext::RebootArg,
-        [first] if equals_ignore_ascii_case(first, "recovery") => CompletionContext::RecoveryArg,
-        [first] if equals_ignore_ascii_case(first, "fault") => CompletionContext::FaultKeyword,
-        [first, second]
-            if equals_ignore_ascii_case(first, "fault")
-                && equals_ignore_ascii_case(second, "recover") =>
+fn determine_context(tokens: &[Token<'_>]) -> CompletionContext {
+    if tokens.is_empty() {
+        return CompletionContext::Root;
+    }
+
+    if tokens.iter().any(|token| token.kind == TokenKind::Error) {
+        return CompletionContext::None;
+    }
+
+    match grammar::parse_tokens_partial(tokens) {
+        Ok((command, _)) => classify_success(tokens, &command),
+        Err(err) => classify_error(tokens, &err.kind),
+    }
+}
+
+fn classify_success(tokens: &[Token<'_>], command: &Command<'_>) -> CompletionContext {
+    match command {
+        Command::Reboot(_) if tokens.len() == 1 => CompletionContext::RebootArg,
+        Command::Recovery(_) if tokens.len() == 1 => CompletionContext::RecoveryArg,
+        Command::Fault(_)
+            if tokens.len() == 2 && equals_ignore_ascii_case(tokens[1].lexeme, "recover") =>
         {
             CompletionContext::FaultRetry
         }
-        [first] if equals_ignore_ascii_case(first, "help") => CompletionContext::HelpTopic,
+        Command::Help(_) if tokens.len() == 1 => CompletionContext::HelpTopic,
+        Command::Fault(_) if tokens.len() == 1 => CompletionContext::FaultKeyword,
+        _ => infer_from_tokens(tokens),
+    }
+}
+
+fn classify_error(tokens: &[Token<'_>], error: &GrammarErrorKind<'_>) -> CompletionContext {
+    match error {
+        GrammarErrorKind::UnexpectedEnd { expected } => match *expected {
+            "reboot" | "recovery" | "fault" | "status" | "help" => CompletionContext::Root,
+            "recover" => CompletionContext::FaultKeyword,
+            "identifier" if first_token_is(tokens, "help") => CompletionContext::HelpTopic,
+            _ => infer_from_tokens(tokens),
+        },
+        GrammarErrorKind::UnexpectedToken { expected, .. } => match *expected {
+            "recover" => CompletionContext::FaultKeyword,
+            "identifier" if first_token_is(tokens, "help") => CompletionContext::HelpTopic,
+            _ => infer_from_tokens(tokens),
+        },
+        _ => infer_from_tokens(tokens),
+    }
+}
+
+fn infer_from_tokens(tokens: &[Token<'_>]) -> CompletionContext {
+    match tokens {
+        [] => CompletionContext::Root,
+        [first] if equals_ignore_ascii_case(first.lexeme, "reboot") => CompletionContext::RebootArg,
+        [first] if equals_ignore_ascii_case(first.lexeme, "recovery") => {
+            CompletionContext::RecoveryArg
+        }
+        [first] if equals_ignore_ascii_case(first.lexeme, "fault") => {
+            CompletionContext::FaultKeyword
+        }
+        [first, second]
+            if equals_ignore_ascii_case(first.lexeme, "fault")
+                && equals_ignore_ascii_case(second.lexeme, "recover") =>
+        {
+            CompletionContext::FaultRetry
+        }
+        [first] if equals_ignore_ascii_case(first.lexeme, "help") => CompletionContext::HelpTopic,
         _ => CompletionContext::None,
     }
+}
+
+fn first_token_is(tokens: &[Token<'_>], expected: &str) -> bool {
+    tokens
+        .first()
+        .map(|token| equals_ignore_ascii_case(token.lexeme, expected))
+        .unwrap_or(false)
 }
 
 fn token_start(buffer: &str) -> usize {
@@ -210,8 +283,13 @@ fn should_append_space(context: CompletionContext, candidate: &'static str) -> b
         return false;
     }
 
+    let tokens = match grammar::lex(candidate) {
+        Ok(tokens) => tokens,
+        Err(_) => return false,
+    };
+
     !matches!(
-        determine_context(&[candidate]),
+        determine_context(tokens.as_slice()),
         CompletionContext::Root | CompletionContext::None
     )
 }

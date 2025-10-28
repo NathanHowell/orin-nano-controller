@@ -11,6 +11,7 @@ default = []
 alloc = []
 
 [dependencies]
-logos = { workspace = true }
+regal = { workspace = true }
+regal-macros = { workspace = true }
 winnow = { workspace = true }
 heapless = { workspace = true }

@@ -46,7 +46,7 @@ IMPORTANT: please refer to existing `firmware` code for reusable logic that can 
 - [X] T005 Create the `controller-core` crate skeleton with `#![no_std]` defaults in `controller-core/Cargo.toml` and `controller-core/src/lib.rs`.
 - [X] T006 [P] Implement strap data structures (`StrapLine`, `SequenceTemplate`, `StrapStep`) per the data model in `controller-core/src/sequences/mod.rs`.
 - [X] T007 [P] Define the command queue and `SequenceRun` state machine traits in `controller-core/src/orchestrator/mod.rs`.
-- [X] T008 [P] Implement REPL tokenization and grammar parsing using `logos` + `winnow` in `controller-core/src/repl/grammar.rs`.
+- [X] T008 [P] Implement REPL tokenization and grammar parsing using `regal` + `winnow` in `controller-core/src/repl/grammar.rs`.
 - [X] T009 [P] Publish telemetry event enums and payload structures in `controller-core/src/telemetry/mod.rs`.
 - [X] T010 [P] Register `controller-core` and `emulator` in the workspace manifest and share dependencies in the root `Cargo.toml`.
 - [X] T011 [P] Add the `controller-core` dependency plus trait adapter scaffolding in `firmware/Cargo.toml` and `firmware/src/hw/mod.rs`.

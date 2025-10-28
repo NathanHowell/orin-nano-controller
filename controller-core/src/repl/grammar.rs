@@ -3,7 +3,7 @@
 //! Lexer and parser for the controller REPL.
 //!
 //! This module exposes an embedded-friendly lexer/parser pipeline. The lexer
-//! uses `logos` to produce a bounded token stream, while the parser composes
+//! uses `regal` to produce a bounded token stream, while the parser composes
 //! `winnow` combinators over those tokens to build structured command values.
 
 use core::fmt;
@@ -11,7 +11,9 @@ use core::ops::Range;
 use core::time::Duration;
 
 use heapless::Vec as HeaplessVec;
-use logos::Logos;
+use regal::IncrementalError;
+use regal::TokenCache;
+use regal_macros::RegalLexer;
 use winnow::combinator::{alt, cut_err, opt, preceded};
 #[allow(deprecated)]
 use winnow::error::ErrorKind;
@@ -21,9 +23,10 @@ use winnow::stream::Stream;
 
 /// Maximum number of tokens produced per REPL line. Commands remain short and bounded.
 pub const MAX_TOKENS: usize = 32;
+const MAX_CACHE_RECORDS: usize = MAX_TOKENS * 2;
 
 /// Lexical token kinds recognized by the REPL grammar.
-#[derive(Logos, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(RegalLexer, Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum TokenKind {
     /// Duration literal ending in `ms` or `s`.
     #[regex(r"[0-9]+(?:ms|s)", priority = 2)]
@@ -44,7 +47,7 @@ pub enum TokenKind {
     #[token(",")]
     Comma,
     /// Inline whitespace is ignored.
-    #[regex(r"[ \t]+", logos::skip)]
+    #[regex(r"[ \t]+", skip)]
     Whitespace,
     /// End-of-line token (`\r`, `\n`, or `\r\n`).
     #[token("\r\n")]
@@ -52,6 +55,8 @@ pub enum TokenKind {
     #[token("\r")]
     Eol,
     /// Pseudo variant used when the lexer encounters unsupported input.
+    #[default]
+    #[regex(r".", priority = 1024)]
     Error,
 }
 
@@ -71,6 +76,8 @@ pub type TokenBuffer<'a> = HeaplessVec<Token<'a>, MAX_TOKENS>;
 pub enum LexError {
     /// Input produced more tokens than the static buffer allows.
     TooManyTokens { processed: usize },
+    /// Underlying lexer reported an unrecoverable error.
+    Engine,
 }
 
 impl fmt::Display for LexError {
@@ -79,6 +86,7 @@ impl fmt::Display for LexError {
             LexError::TooManyTokens { processed } => {
                 write!(f, "token buffer exhausted after {processed} items")
             }
+            LexError::Engine => write!(f, "lexer engine error"),
         }
     }
 }
@@ -256,24 +264,78 @@ pub struct HelpCommand<'a> {
     pub topic: Option<&'a str>,
 }
 
+pub(crate) fn parse_tokens_partial<'src, 'slice>(
+    tokens: &'slice [Token<'src>],
+) -> Result<(Command<'src>, &'slice [Token<'src>]), GrammarError<'src>>
+where
+    'src: 'slice,
+{
+    let mut input = tokens;
+    match command().parse_next(&mut input) {
+        Ok(cmd) => Ok((cmd, input)),
+        Err(ErrMode::Backtrack(err)) | Err(ErrMode::Cut(err)) => Err(err),
+        Err(ErrMode::Incomplete(_)) => Err(GrammarError::unexpected("token", input.first())),
+    }
+}
+
 /// Tokenize the provided line.
 pub fn lex(line: &str) -> Result<TokenBuffer<'_>, LexError> {
+    let compiled = TokenKind::lexer();
+    let mut cache: TokenCache<TokenKind, MAX_CACHE_RECORDS> = TokenCache::new();
+    let partial = cache
+        .rebuild(compiled, line)
+        .map_err(map_incremental_error)?;
     let mut buffer = TokenBuffer::new();
-    let mut lexer = TokenKind::lexer(line);
-    let mut count = 0usize;
 
-    while let Some(result) = lexer.next() {
-        count += 1;
-        let span = lexer.span();
-        let lexeme = lexer.slice();
-        let kind = result.unwrap_or(TokenKind::Error);
+    for record in cache.tokens() {
+        if record.skipped {
+            continue;
+        }
 
-        if buffer.push(Token { kind, lexeme, span }).is_err() {
-            return Err(LexError::TooManyTokens { processed: count });
+        let span = record.start..record.end;
+        let lexeme = &line[span.clone()];
+        if buffer
+            .push(Token {
+                kind: record.token,
+                lexeme,
+                span,
+            })
+            .is_err()
+        {
+            return Err(LexError::TooManyTokens {
+                processed: buffer.len() + 1,
+            });
+        }
+    }
+
+    if let Some(partial) = partial.filter(|partial| !partial.fragment.is_empty()) {
+        let start = partial.start;
+        let end = start + partial.fragment.len();
+        let span = start..end;
+        if buffer
+            .push(Token {
+                kind: TokenKind::Error,
+                lexeme: partial.fragment,
+                span,
+            })
+            .is_err()
+        {
+            return Err(LexError::TooManyTokens {
+                processed: buffer.len() + 1,
+            });
         }
     }
 
     Ok(buffer)
+}
+
+fn map_incremental_error(error: IncrementalError) -> LexError {
+    match error {
+        IncrementalError::TokenOverflow => LexError::TooManyTokens {
+            processed: MAX_TOKENS,
+        },
+        _ => LexError::Engine,
+    }
 }
 
 /// Parse a REPL command from the provided line.
@@ -286,27 +348,21 @@ pub fn parse(line: &str) -> Result<Command<'_>, ParseError<'_>> {
         }
     }
 
-    let mut input = tokens.as_slice();
-    match command().parse_next(&mut input) {
-        Ok(cmd) => {
-            while let Some((token, rest)) = input.split_first() {
-                if token.kind == TokenKind::Eol {
-                    input = rest;
-                } else {
-                    return Err(ParseError::Grammar(GrammarError::unexpected(
-                        "end of command",
-                        Some(token),
-                    )));
-                }
-            }
-            Ok(cmd)
+    let (command, mut rest) =
+        parse_tokens_partial(tokens.as_slice()).map_err(ParseError::Grammar)?;
+
+    while let Some((token, remaining)) = rest.split_first() {
+        if token.kind == TokenKind::Eol {
+            rest = remaining;
+        } else {
+            return Err(ParseError::Grammar(GrammarError::unexpected(
+                "end of command",
+                Some(token),
+            )));
         }
-        Err(ErrMode::Backtrack(err)) | Err(ErrMode::Cut(err)) => Err(ParseError::Grammar(err)),
-        Err(ErrMode::Incomplete(_)) => Err(ParseError::Grammar(GrammarError::unexpected(
-            "token",
-            input.first(),
-        ))),
     }
+
+    Ok(command)
 }
 
 fn command<'src, 'slice>() -> impl Parser<Input<'src, 'slice>, Command<'src>, GrammarError<'src>>
@@ -574,5 +630,13 @@ mod tests {
     #[test]
     fn supports_case_insensitive_keywords() {
         assert_eq!(parse_ok("ReBoOt Now"), Command::Reboot(RebootCommand::Now));
+    }
+
+    #[test]
+    fn lexer_emits_error_token_for_unknown_symbol() {
+        let tokens = lex("reboot now$").expect("lexing should succeed");
+        let last = tokens.last().expect("expected at least one token");
+        assert_eq!(last.kind, TokenKind::Error);
+        assert_eq!(last.lexeme, "$");
     }
 }

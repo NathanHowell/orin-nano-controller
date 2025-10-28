@@ -26,7 +26,7 @@ ident          := ASCII alpha { ASCII alpha | digit | "-" }
 | `Equals`     | `=`          | Key/value separator                 |
 | `Eol`        | `\r`, `\n`   | Line terminator                     |
 
-The lexer (`logos`) produces these tokens and hands them to the `winnow` parser, which applies the productions above. Keywords are matched case-insensitively; arguments preserve case for logging.
+The lexer (`regal`) produces these tokens and hands them to the `winnow` parser, which applies the productions above. Keywords are matched case-insensitively; arguments preserve case for logging.
 
 ## Completion Hints
 

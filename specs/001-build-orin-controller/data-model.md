@@ -58,7 +58,7 @@
 - **Validation rules**: Must stay synchronized with the actual executor implementations; unit tests assert round-trip (format → parse → format) correctness.
 
 ### `TokenKind`
-- **Fields**: `enum TokenKind { Ident, Integer, Duration, Flag, Equals, Comma, Eol, Error }` generated with `logos`.
+- **Fields**: `enum TokenKind { Ident, Integer, Duration, Flag, Equals, Comma, Eol, Error }` generated with `regal`.
 - **Relationships**: Drives the `winnow` parser; produced by the lexer from raw REPL input.
 - **Validation rules**: Mapping covers all grammar terminals; `Error` tokens bubble into parser diagnostics with byte offsets.
 
@@ -73,7 +73,7 @@
 - **Validation rules**: Enforce fixed buffer size; ignore unsupported control sequences; ensure UTF-8 correctness by restricting to ASCII command set and rejecting disallowed bytes with a terminal BEL instead of buffering them; keep the prompt anchored on the last terminal line by using standard VT100 cursor saves/restores so command output appears above the editor.
 
 ### `ReplSession`
-- **Fields**: `port: UsbPortHandle`, `grammar: &'static CommandGrammar`, `executor: CommandExecutor`, `line_editor: LineEditor`, `lexer: logos::Lexer<TokenKind>`.
+- **Fields**: `port: UsbPortHandle`, `grammar: &'static CommandGrammar`, `executor: CommandExecutor`, `line_editor: LineEditor`, `lexer: regal::TokenCache<TokenKind, MAX_TOKENS>`.
 - **Relationships**: Consumes bytes from the REPL CDC port, produces `SequenceCommand` or administrative requests, and emits textual responses.
 - **Validation rules**: Process one command at a time to honor FR-005; rely on the line editor to gate invalid characters so parser errors are reported generically (`ERR <code> <message>`) without caret positioning; integrate with telemetry for observability.
 

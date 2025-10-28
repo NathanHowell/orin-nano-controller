@@ -18,7 +18,8 @@ embassy-sync = "0.7.2"
 embassy-time = "0.5.0"
 embassy-usb = {  version = "0.5.1", default-features = false }
 heapless = "0.8.0"
-logos = { version = "0.14", default-features = false, features = ["export_derive"] }
+regal = { path = "../regal/regal" }
+regal-macros = { path = "../regal/regal-macros" }
 panic-halt = "1.0.0"
 winnow = { version = "0.6", default-features = false }
 critical-section = { version = "1.2.0", features = ["restore-state-bool"] }
