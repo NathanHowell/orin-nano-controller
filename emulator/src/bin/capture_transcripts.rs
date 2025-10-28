@@ -56,14 +56,8 @@ fn record_fault(session: &mut Session) -> io::Result<()> {
     session.handle_completion("fault r", "fault r".len())?;
     session.handle_completion("fault recover ", "fault recover ".len())?;
     session.handle_completion("fault recover r", "fault recover r".len())?;
-    session.handle_completion(
-        "fault recover retries=",
-        "fault recover retries=".len(),
-    )?;
-    session.handle_completion(
-        "fault recover retries=3",
-        "fault recover retries=3".len(),
-    )?;
+    session.handle_completion("fault recover retries=", "fault recover retries=".len())?;
+    session.handle_completion("fault recover retries=3", "fault recover retries=3".len())?;
 
     let _ = session.handle_command("fault recover")?;
     std::thread::sleep(std::time::Duration::from_millis(2500));
