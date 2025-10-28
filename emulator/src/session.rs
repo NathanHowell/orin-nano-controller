@@ -6,7 +6,7 @@ use std::time::{Duration, Instant as HostInstant};
 
 use controller_core::orchestrator::{
     CommandEnqueueError, CommandQueueProducer, CommandSource, ScheduleError, SequenceCommand,
-    SequenceScheduler,
+    SequenceScheduler, register_default_templates,
 };
 use controller_core::repl::commands::{
     CommandError, CommandExecutor, CommandOutcome, FaultAck, RebootAck, RecoveryAck,
@@ -16,7 +16,6 @@ use controller_core::repl::grammar::RecoveryCommand;
 use controller_core::sequences::fault::FAULT_RECOVERY_MAX_RETRIES;
 use controller_core::sequences::{
     SequenceTemplate, StepCompletion, StrapAction, StrapSequenceKind, StrapStep,
-    fault_recovery_template, recovery_entry_template, recovery_immediate_template,
 };
 
 const DEFAULT_QUEUE_DEPTH: usize = 4;
@@ -109,15 +108,7 @@ impl Session {
         let mut scheduler = SequenceScheduler::new(queue);
         {
             let templates = scheduler.templates_mut();
-            templates
-                .register(recovery_entry_template())
-                .expect("register RecoveryEntry template");
-            templates
-                .register(recovery_immediate_template())
-                .expect("register RecoveryImmediate template");
-            templates
-                .register(fault_recovery_template())
-                .expect("register FaultRecovery template");
+            register_default_templates(templates).expect("register default sequence templates");
         }
         let executor = CommandExecutor::new(scheduler);
 

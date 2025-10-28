@@ -12,7 +12,8 @@ use heapless::Vec;
 
 use crate::sequences::{
     SequenceTemplate, StepCompletion, StrapAction, StrapId, StrapSequenceKind, StrapStep,
-    normal_reboot_template,
+    fault_recovery_template, normal_reboot_template, recovery_entry_template,
+    recovery_immediate_template,
 };
 
 /// Identifier used when tracking emitted telemetry events.
@@ -729,6 +730,14 @@ where
 /// Maximum number of templates we expect to register for the controller.
 pub const MAX_SEQUENCE_TEMPLATES: usize = SEQUENCE_KIND_COUNT;
 
+/// Default strap templates made available to schedulers and orchestrators.
+pub const DEFAULT_SEQUENCE_TEMPLATES: [SequenceTemplate; SEQUENCE_KIND_COUNT] = [
+    normal_reboot_template(),
+    recovery_entry_template(),
+    recovery_immediate_template(),
+    fault_recovery_template(),
+];
+
 /// Registry tracking strap sequence templates by [`StrapSequenceKind`].
 #[derive(Clone)]
 pub struct TemplateRegistry<const CAPACITY: usize = MAX_SEQUENCE_TEMPLATES> {
@@ -789,6 +798,16 @@ impl<const CAPACITY: usize> Default for TemplateRegistry<CAPACITY> {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Registers all default strap templates with the provided registry.
+pub fn register_default_templates<const CAPACITY: usize>(
+    registry: &mut TemplateRegistry<CAPACITY>,
+) -> Result<(), TemplateRegistryError> {
+    for template in DEFAULT_SEQUENCE_TEMPLATES {
+        registry.register(template)?;
+    }
+    Ok(())
 }
 
 /// Errors that may occur while managing the template registry.
@@ -921,9 +940,7 @@ where
             cooldowns: CooldownTracker::new(),
         };
 
-        scheduler
-            .templates
-            .register(normal_reboot_template())
+        register_default_templates(&mut scheduler.templates)
             .expect("default template registration should succeed");
 
         scheduler
@@ -1103,14 +1120,20 @@ mod tests {
     }
 
     #[test]
-    fn normal_reboot_registered_by_default() {
+    fn default_templates_registered_by_default() {
         let queue = MockQueue::new(4);
         let scheduler = SequenceScheduler::<MockQueue>::new(queue);
-        assert!(
-            scheduler
-                .templates()
-                .contains(StrapSequenceKind::NormalReboot)
-        );
+        for kind in [
+            StrapSequenceKind::NormalReboot,
+            StrapSequenceKind::RecoveryEntry,
+            StrapSequenceKind::RecoveryImmediate,
+            StrapSequenceKind::FaultRecovery,
+        ] {
+            assert!(
+                scheduler.templates().contains(kind),
+                "missing default template for {kind:?}"
+            );
+        }
     }
 
     #[test]

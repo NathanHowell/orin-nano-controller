@@ -15,10 +15,7 @@ use crate::straps;
 use crate::straps::orchestrator::{HardwareStrapDriver, NoopPowerMonitor, StrapOrchestrator};
 use crate::telemetry::TelemetryRecorder;
 use crate::usb;
-use controller_core::sequences::{
-    SequenceTemplate, fault_recovery_template, normal_reboot_template, recovery_entry_template,
-    recovery_immediate_template,
-};
+use controller_core::orchestrator::register_default_templates;
 
 mod bridge_task;
 mod repl_task;
@@ -50,13 +47,6 @@ pub(super) static BRIDGE_QUEUE: BridgeQueue = BridgeQueue::new();
 pub(super) static BRIDGE_ACTIVITY: BridgeActivityBus = BridgeActivityBus::new();
 pub(super) static mut USB_STORAGE: MaybeUninit<usb::UsbDeviceStorage> = MaybeUninit::uninit();
 
-pub(super) const REGISTERED_TEMPLATES: [SequenceTemplate; 4] = [
-    normal_reboot_template(),
-    recovery_entry_template(),
-    recovery_immediate_template(),
-    fault_recovery_template(),
-];
-
 #[embassy_executor::main]
 pub async fn main(spawner: Spawner) {
     let config = hal::Config::default();
@@ -86,11 +76,7 @@ pub async fn main(spawner: Spawner) {
         StrapOrchestrator::with_components(command_receiver, NoopPowerMonitor::new(), strap_driver);
     {
         let registry = orchestrator.templates_mut();
-        for template in REGISTERED_TEMPLATES {
-            registry
-                .register(template)
-                .expect("strap template registration");
-        }
+        register_default_templates(registry).expect("strap template registration");
     }
 
     let telemetry = TelemetryRecorder::new();
