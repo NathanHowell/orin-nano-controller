@@ -146,7 +146,7 @@ IMPORTANT: please refer to existing `firmware` code for reusable logic that can 
 - [X] T059 Replace the firmware-specific strap template registry with the shared `controller-core::orchestrator::TemplateRegistry`.
 - [X] T060 Move the `SequenceRun` state holder (and related traits) into `controller-core` so host tests can exercise the runtime.
 - [X] T061 Promote the bridge activity monitor and telemetry ring buffer into `controller-core`, leaving Embassy channel wiring in firmware.
-- [ ] T062 Split `firmware/src/main.rs` into per-task modules and gate STM32-only imports with module-level `cfg`s.
+- [X] T062 Split `firmware/src/main.rs` into per-task modules and gate STM32-only imports with module-level `cfg`s.
 - [ ] T063 Introduce a single helper that registers default strap templates for both the REPL scheduler and the strap orchestrator.
 - [ ] T064 Define a portable power-monitor abstraction in `controller-core` and adapt the firmware brown-out handler to use it.
 
