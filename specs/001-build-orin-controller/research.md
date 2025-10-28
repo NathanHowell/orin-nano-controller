@@ -33,3 +33,32 @@ Alternatives considered:
 Decision: Factor logic (sequence state machines, parsers, voltage guard conditions) into `#[cfg(test)]`-friendly modules that compile for `thumbv6m-none-eabi` and `x86_64-unknown-linux-gnu`, run unit tests with `cargo test` on the host using the built-in test runner, and reserve `defmt-test`/probe-run smoke tests for later integration evidence.  
 Rationale: Host-side unit tests execute quickly without hardware, fulfilling the mandate to test parsers/logic; keeping code `no_std` with optional `alloc` gating ensures embedded compatibility; defmt-test smoke tests can be layered once hardware harness is ready.  
 Alternatives considered: Relying solely on hardware-in-loop tests (rejected—slower feedback, harder automation); skipping tests because of embedded constraints (rejected—violates requirement for unit tests on logic); adopting nightly-only `generic-tests` (rejected—unnecessary).
+
+## VREFINT Brown-Out Detection Design
+
+Decision: Drive brown-out detection from the STM32G0B1 internal reference (`VREFINT`) so the firmware can classify the 3.3 V rail without external dividers. The `controller-core` power monitor abstraction will expose calibrated millivolt readings and hysteresis so both firmware and emulator can consume consistent semantics.  
+Rationale: `VREFINT` is trimmed at production and accessible on every package; sampling it with ADC1 channel 10 avoids the board-to-board variance that comes with using the Jetson LED divider. A calibrated reading gives us deterministic retry gating inside the shared orchestrator and lets us reuse the logic in host tests.  
+Alternatives considered: Relying on the existing LED divider (rejected—indirect proxy, laggy under PWM dimming); monitoring external VDD sense pins (rejected—requires BOM change); using PVD threshold interrupts (rejected—coarse granularity, no telemetry of actual droop).
+
+### Calibration & Constants
+
+- `VREFINT_CAL` resides at `0x1FFF_75AA` (16-bit unsigned) and reflects a 12-bit ADC conversion performed at exactly 3.0 V during factory trim.  
+- Runtime VDDA is derived with `vdda_mv = (3000 * VREFINT_CAL) / sample`, where `sample` is the most recent ADC1 channel-10 conversion.  
+- Brown-out entry threshold: 3050 mV (≈7.5% below nominal 3.3 V).  
+- Brown-out clear threshold: 3150 mV, yielding 100 mV of hysteresis to avoid chatter once the supply rebounds.  
+- Sampling period defaults to 5 ms; power must remain above the clear threshold for 25 ms (`stable_holdoff`) before the orchestrator resumes sequences.
+
+### Sampling Procedure
+
+1. Enable the internal reference for the ADC by setting `SYSCFG_CFGR3.VREFEN` (via Embassy's `enable_vrefint()` helper once added) and waiting the datasheet-specified 10 µs stabilization delay.  
+2. Configure ADC1 single-ended channel 10 with `sample_time = 64.5 cycles` to satisfy the minimum acquisition time for the 3.0 kΩ source impedance of `VREFINT`.  
+3. Trigger a conversion on each poll; discard the first sample after enabling the channel to allow the sampling capacitor to settle.  
+4. Treat a conversion result of `0` as invalid and surface `PowerStatus::Unknown`, ensuring the orchestrator does not mistakenly classify power as healthy.  
+5. Store the latest `PowerSample` (timestamp + millivolt reading) so telemetry can report both brown-out events and stabilization.
+
+### Failure Handling & Telemetry
+
+- If `VREFINT_CAL` reads as `0xFFFF` or `0x0000`, fall back to `PowerStatus::Unknown` and emit a telemetry warning; this keeps retries disabled while highlighting the calibration fault.  
+- Each brown-out transition produces telemetry showing `enter_threshold_mv`, `exit_threshold_mv`, and the sampled value so bench evidence can justify retries.  
+- Retries remain bounded by the existing orchestrator policy; the new monitor only influences when the FSM leaves the `Error` state.  
+- Emulator builds will provide a deterministic stub that injects scripted millivolt values, enabling unit tests for the hysteresis logic described above.
