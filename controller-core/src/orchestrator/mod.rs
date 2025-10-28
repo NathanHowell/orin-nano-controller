@@ -6,7 +6,7 @@
 //! queue/sequence types that satisfy these traits while reusing the shared
 //! business logic housed in `controller-core`.
 
-use core::{fmt, marker::PhantomData, ops::Add, time::Duration};
+use core::{fmt, marker::PhantomData, num::NonZeroU16, ops::Add, time::Duration};
 
 use heapless::Vec;
 
@@ -258,6 +258,13 @@ pub enum PowerStatus<TInstant> {
     Unknown,
 }
 
+/// Factory-trimmed reference voltage used when converting VREFINT readings.
+pub const DEFAULT_VREF_REFERENCE_MV: u16 = 3000;
+/// Default millivolt threshold that triggers a brown-out classification.
+pub const DEFAULT_BROWNOUT_ENTRY_MV: u16 = 3050;
+/// Default millivolt threshold that clears a brown-out classification.
+pub const DEFAULT_BROWNOUT_RECOVERY_MV: u16 = 3150;
+
 /// Interface provided by a power-rail monitor.
 pub trait PowerMonitor {
     /// Timestamp type associated with collected power samples.
@@ -274,6 +281,207 @@ pub trait PowerMonitor {
     /// Duration that the rail must remain above the stability threshold.
     fn stable_holdoff(&self) -> Duration {
         Duration::from_millis(DEFAULT_POWER_STABLE_HOLDOFF_MS)
+    }
+}
+
+/// Raw ADC sample acquired from the VREFINT channel.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct VrefintSample<TInstant> {
+    pub timestamp: TInstant,
+    pub reading: u16,
+}
+
+impl<TInstant> VrefintSample<TInstant> {
+    /// Creates a new [`VrefintSample`] with the provided timestamp and ADC reading.
+    pub const fn new(timestamp: TInstant, reading: u16) -> Self {
+        Self { timestamp, reading }
+    }
+}
+
+/// Source capable of providing successive VREFINT samples.
+pub trait VrefintSampleProvider {
+    /// Timestamp type associated with the generated samples.
+    type Instant: Copy;
+
+    /// Returns the next available VREFINT sample, if any.
+    fn next_sample(&mut self) -> Option<VrefintSample<Self::Instant>>;
+}
+
+impl<TInstant, F> VrefintSampleProvider for F
+where
+    F: FnMut() -> Option<VrefintSample<TInstant>>,
+    TInstant: Copy,
+{
+    type Instant = TInstant;
+
+    fn next_sample(&mut self) -> Option<VrefintSample<Self::Instant>> {
+        self()
+    }
+}
+
+/// Configuration parameters that govern how the VREFINT power monitor interprets samples.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct VrefintConfig {
+    pub reference_mv: NonZeroU16,
+    pub brownout_entry_mv: u16,
+    pub recovery_mv: u16,
+    pub sample_interval: Duration,
+    pub stable_holdoff: Duration,
+}
+
+impl VrefintConfig {
+    /// Builds a new configuration for the VREFINT power monitor.
+    pub fn new(
+        reference_mv: NonZeroU16,
+        brownout_entry_mv: u16,
+        recovery_mv: u16,
+        sample_interval: Duration,
+        stable_holdoff: Duration,
+    ) -> Self {
+        debug_assert!(brownout_entry_mv < recovery_mv);
+
+        Self {
+            reference_mv,
+            brownout_entry_mv,
+            recovery_mv,
+            sample_interval,
+            stable_holdoff,
+        }
+    }
+}
+
+impl Default for VrefintConfig {
+    fn default() -> Self {
+        Self::new(
+            NonZeroU16::new(DEFAULT_VREF_REFERENCE_MV)
+                .expect("default reference voltage must be non-zero"),
+            DEFAULT_BROWNOUT_ENTRY_MV,
+            DEFAULT_BROWNOUT_RECOVERY_MV,
+            Duration::from_millis(DEFAULT_POWER_SAMPLE_PERIOD_MS),
+            Duration::from_millis(DEFAULT_POWER_STABLE_HOLDOFF_MS),
+        )
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum VrefintState {
+    Unknown,
+    Stable,
+    BrownOut,
+}
+
+/// Power monitor that converts VREFINT ADC readings into millivolt classifications.
+pub struct VrefintPowerMonitor<P>
+where
+    P: VrefintSampleProvider,
+{
+    provider: P,
+    calibration: Option<NonZeroU16>,
+    config: VrefintConfig,
+    last_state: VrefintState,
+}
+
+impl<P> VrefintPowerMonitor<P>
+where
+    P: VrefintSampleProvider,
+{
+    /// Builds a monitor that uses the default configuration parameters.
+    pub fn new(calibration_raw: u16, provider: P) -> Self {
+        Self::with_config(calibration_raw, VrefintConfig::default(), provider)
+    }
+
+    /// Builds a monitor with custom configuration parameters.
+    pub fn with_config(calibration_raw: u16, config: VrefintConfig, provider: P) -> Self {
+        let calibration = NonZeroU16::new(calibration_raw).filter(|value| value.get() != u16::MAX);
+        Self {
+            provider,
+            calibration,
+            config,
+            last_state: VrefintState::Unknown,
+        }
+    }
+
+    fn classification_for(&self, millivolts: u16) -> VrefintState {
+        match self.last_state {
+            VrefintState::BrownOut => {
+                if millivolts >= self.config.recovery_mv {
+                    VrefintState::Stable
+                } else {
+                    VrefintState::BrownOut
+                }
+            }
+            VrefintState::Stable => {
+                if millivolts <= self.config.brownout_entry_mv {
+                    VrefintState::BrownOut
+                } else {
+                    VrefintState::Stable
+                }
+            }
+            VrefintState::Unknown => {
+                if millivolts <= self.config.brownout_entry_mv {
+                    VrefintState::BrownOut
+                } else {
+                    VrefintState::Stable
+                }
+            }
+        }
+    }
+
+    fn millivolts_from_reading(&self, calibration: NonZeroU16, reading: u16) -> u16 {
+        let reading = u32::from(reading);
+        if reading == 0 {
+            return 0;
+        }
+
+        let numerator = u32::from(calibration.get()) * u32::from(self.config.reference_mv.get());
+        let value = (numerator + (reading / 2)) / reading;
+        value.min(u32::from(u16::MAX)) as u16
+    }
+
+    fn handle_invalid_sample(&mut self) -> PowerStatus<P::Instant> {
+        self.last_state = VrefintState::Unknown;
+        PowerStatus::Unknown
+    }
+}
+
+impl<P> PowerMonitor for VrefintPowerMonitor<P>
+where
+    P: VrefintSampleProvider,
+{
+    type Instant = P::Instant;
+
+    fn poll(&mut self) -> PowerStatus<Self::Instant> {
+        let Some(calibration) = self.calibration else {
+            return self.handle_invalid_sample();
+        };
+
+        let Some(sample) = self.provider.next_sample() else {
+            return self.handle_invalid_sample();
+        };
+
+        if sample.reading == 0 {
+            return self.handle_invalid_sample();
+        }
+
+        let millivolts = self.millivolts_from_reading(calibration, sample.reading);
+        let classification = self.classification_for(millivolts);
+        self.last_state = classification;
+
+        let power_sample = PowerSample::new(sample.timestamp, Some(millivolts));
+
+        match classification {
+            VrefintState::Stable => PowerStatus::Stable(power_sample),
+            VrefintState::BrownOut => PowerStatus::BrownOut(power_sample),
+            VrefintState::Unknown => PowerStatus::Unknown,
+        }
+    }
+
+    fn sample_interval(&self) -> Duration {
+        self.config.sample_interval
+    }
+
+    fn stable_holdoff(&self) -> Duration {
+        self.config.stable_holdoff
     }
 }
 
@@ -1181,6 +1389,47 @@ mod tests {
         }
     }
 
+    #[derive(Clone)]
+    struct SampleProvider {
+        samples: HeaplessVec<VrefintSample<MockInstant>, 16>,
+        cursor: usize,
+    }
+
+    impl SampleProvider {
+        fn from_samples(samples: &[VrefintSample<MockInstant>]) -> Self {
+            let mut buffer = HeaplessVec::new();
+            for sample in samples {
+                buffer
+                    .push(*sample)
+                    .expect("buffer too small for test samples");
+            }
+            Self {
+                samples: buffer,
+                cursor: 0,
+            }
+        }
+    }
+
+    impl VrefintSampleProvider for SampleProvider {
+        type Instant = MockInstant;
+
+        fn next_sample(&mut self) -> Option<VrefintSample<Self::Instant>> {
+            if self.cursor >= self.samples.len() {
+                return None;
+            }
+
+            let sample = self.samples[self.cursor];
+            self.cursor += 1;
+            Some(sample)
+        }
+    }
+
+    fn reading_for_mv(calibration: u16, reference_mv: u16, target_mv: u32) -> u16 {
+        let numerator = u32::from(calibration) * u32::from(reference_mv);
+        let reading = numerator / target_mv;
+        reading.max(1).min(u32::from(u16::MAX)) as u16
+    }
+
     fn new_sequence_run() -> SequenceRun<MockInstant, 8> {
         let command = SequenceCommand::new(
             StrapSequenceKind::NormalReboot,
@@ -1252,6 +1501,94 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn vrefint_monitor_marks_unknown_when_calibration_invalid() {
+        let samples = [VrefintSample::new(MockInstant::micros(0), 1500)];
+        let provider = SampleProvider::from_samples(&samples);
+        let mut monitor = VrefintPowerMonitor::new(u16::MAX, provider);
+
+        assert!(matches!(monitor.poll(), PowerStatus::Unknown));
+    }
+
+    #[test]
+    fn vrefint_monitor_applies_hysteresis() {
+        let calibration = 1500u16;
+        let reference = DEFAULT_VREF_REFERENCE_MV;
+        let samples = [
+            VrefintSample::new(
+                MockInstant::micros(0),
+                reading_for_mv(calibration, reference, 3300),
+            ),
+            VrefintSample::new(
+                MockInstant::micros(5_000),
+                reading_for_mv(calibration, reference, 3000),
+            ),
+            VrefintSample::new(
+                MockInstant::micros(10_000),
+                reading_for_mv(calibration, reference, 3125),
+            ),
+            VrefintSample::new(
+                MockInstant::micros(15_000),
+                reading_for_mv(calibration, reference, 3200),
+            ),
+        ];
+
+        let provider = SampleProvider::from_samples(&samples);
+        let mut monitor = VrefintPowerMonitor::new(calibration, provider);
+
+        let first = monitor.poll();
+        let first_mv = match first {
+            PowerStatus::Stable(sample) => sample.millivolts,
+            _ => panic!("expected stable classification for high VDDA"),
+        }
+        .expect("millivolt reading should be present");
+        assert!(first_mv >= DEFAULT_BROWNOUT_RECOVERY_MV);
+
+        assert!(matches!(monitor.poll(), PowerStatus::BrownOut(_)));
+
+        // Reading within the hysteresis band should keep the brown-out classification.
+        assert!(matches!(monitor.poll(), PowerStatus::BrownOut(_)));
+
+        let final_status = monitor.poll();
+        match final_status {
+            PowerStatus::Stable(sample) => {
+                assert!(
+                    sample
+                        .millivolts
+                        .expect("missing millivolt reading on stable sample")
+                        >= DEFAULT_BROWNOUT_RECOVERY_MV
+                );
+            }
+            _ => panic!("expected stable classification after recovery threshold exceeded"),
+        }
+    }
+
+    #[test]
+    fn vrefint_monitor_reports_unknown_on_zero_sample() {
+        let samples = [VrefintSample::new(MockInstant::micros(0), 0)];
+        let provider = SampleProvider::from_samples(&samples);
+        let mut monitor = VrefintPowerMonitor::new(1500, provider);
+
+        assert!(matches!(monitor.poll(), PowerStatus::Unknown));
+    }
+
+    #[test]
+    fn vrefint_monitor_uses_configured_timings() {
+        let samples = [VrefintSample::new(MockInstant::micros(0), 1500)];
+        let provider = SampleProvider::from_samples(&samples);
+        let config = VrefintConfig::new(
+            NonZeroU16::new(DEFAULT_VREF_REFERENCE_MV).unwrap(),
+            3000,
+            3200,
+            Duration::from_millis(12),
+            Duration::from_millis(48),
+        );
+        let monitor = VrefintPowerMonitor::with_config(1500, config, provider);
+
+        assert_eq!(monitor.sample_interval(), Duration::from_millis(12));
+        assert_eq!(monitor.stable_holdoff(), Duration::from_millis(48));
     }
 
     #[test]
