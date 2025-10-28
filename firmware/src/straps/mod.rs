@@ -3,6 +3,7 @@
 pub mod orchestrator;
 
 pub use controller_core::telemetry::TelemetryEventKind;
+use controller_core::telemetry::TelemetryInstant;
 use controller_core::{orchestrator as core_orch, sequences as core_seq};
 #[cfg(not(target_os = "none"))]
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
@@ -70,6 +71,13 @@ impl Add<core::time::Duration> for FirmwareInstant {
         let micros = rhs.as_micros().min(u128::from(u64::MAX)) as u64;
         let delta = EmbassyDuration::from_micros(micros);
         Self(self.0 + delta)
+    }
+}
+
+impl TelemetryInstant for FirmwareInstant {
+    fn saturating_duration_since(&self, earlier: Self) -> core::time::Duration {
+        let delta = self.0.saturating_duration_since(earlier.0);
+        core::time::Duration::from_micros(delta.as_micros())
     }
 }
 

@@ -11,6 +11,7 @@ extern crate alloc;
 // This crate stays portable across MCU firmware and host tooling by avoiding the
 // Rust standard library and exposing abstractions the other crates can adopt.
 
+pub mod bridge;
 pub mod orchestrator;
 pub mod repl;
 pub mod sequences;

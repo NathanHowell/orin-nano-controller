@@ -10,8 +10,15 @@ use embassy_sync::channel::{Channel, Receiver, Sender};
 use embassy_time::Instant;
 use heapless::Vec;
 
-use crate::straps::{EventId, TelemetryEventKind};
-use crate::telemetry::{TelemetryPayload, TelemetryRecorder};
+use crate::straps::FirmwareInstant;
+use crate::telemetry::TelemetryRecorder;
+pub use controller_core::bridge::BridgeActivityKind;
+use controller_core::bridge::{
+    BridgeActivityEvent as CoreBridgeActivityEvent,
+    BridgeActivityMonitor as CoreBridgeActivityMonitor,
+    BridgeActivityUpdate as CoreBridgeActivityUpdate,
+    BridgeDisconnectNotice as CoreBridgeDisconnectNotice,
+};
 
 #[cfg(not(target_os = "none"))]
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
@@ -44,33 +51,14 @@ pub type BridgeSender<'a> = Sender<'a, BridgeMutex, BridgeFrame, BRIDGE_QUEUE_DE
 /// Receiver handle tied to a bridge channel.
 pub type BridgeReceiver<'a> = Receiver<'a, BridgeMutex, BridgeFrame, BRIDGE_QUEUE_DEPTH>;
 
-/// Identifies the direction for a bridge activity event.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum BridgeActivityKind {
-    /// Bytes forwarded from the USB CDC bridge port toward the Jetson UART.
-    UsbToJetson,
-    /// Bytes received from the Jetson UART and forwarded to the USB host.
-    JetsonToUsb,
-}
+/// Bridge activity event shared with the orchestrator.
+pub type BridgeActivityEvent = CoreBridgeActivityEvent<FirmwareInstant>;
 
-/// Metadata describing a single bridge activity observation.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct BridgeActivityEvent {
-    pub kind: BridgeActivityKind,
-    pub timestamp: Instant,
-    pub bytes: usize,
-}
+/// Activity update emitted after processing an event.
+pub type BridgeActivityUpdate = CoreBridgeActivityUpdate<FirmwareInstant>;
 
-/// Result emitted when the monitor processes an activity event.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct BridgeActivityUpdate {
-    /// Raw activity metadata forwarded by the bridge tasks.
-    pub event: BridgeActivityEvent,
-    /// Telemetry record identifier generated for the activity (if any).
-    pub telemetry_event: Option<EventId>,
-    /// Indicates whether the REC strap should be released due to console activity.
-    pub release_recovery: bool,
-}
+/// Notice emitted when the USB control link disconnects.
+pub type BridgeDisconnectNotice = CoreBridgeDisconnectNotice<FirmwareInstant>;
 
 /// Channel used to publish bridge activity events.
 pub type BridgeActivityChannel = Channel<BridgeMutex, BridgeActivityEvent, ACTIVITY_QUEUE_DEPTH>;
@@ -82,13 +70,6 @@ pub type BridgeActivitySender<'a> =
 /// Receiver for bridge activity events.
 pub type BridgeActivityReceiver<'a> =
     Receiver<'a, BridgeMutex, BridgeActivityEvent, ACTIVITY_QUEUE_DEPTH>;
-
-/// Snapshot emitted when the USB control link disconnects.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct BridgeDisconnectNotice {
-    pub timestamp: Instant,
-    pub recovery_release_pending: bool,
-}
 
 /// Bundles the bounded USB↔UART channels so tasks can share a single instance.
 pub struct BridgeQueue {
@@ -153,10 +134,7 @@ impl BridgeActivityBus {
 /// Tracks USB/UART activity and exposes timestamps for REPL status reporting.
 pub struct BridgeActivityMonitor<'a> {
     subscriber: BridgeActivityReceiver<'a>,
-    pending_recovery_release: bool,
-    last_rx: Option<Instant>,
-    last_tx: Option<Instant>,
-    link_attached: bool,
+    monitor: CoreBridgeActivityMonitor<FirmwareInstant>,
 }
 
 impl<'a> BridgeActivityMonitor<'a> {
@@ -164,109 +142,57 @@ impl<'a> BridgeActivityMonitor<'a> {
     pub fn new(subscriber: BridgeActivityReceiver<'a>) -> Self {
         Self {
             subscriber,
-            pending_recovery_release: false,
-            last_rx: None,
-            last_tx: None,
-            link_attached: false,
+            monitor: CoreBridgeActivityMonitor::new(),
         }
     }
 
     /// Returns `true` when a recovery sequence is waiting on bridge activity.
     pub fn is_pending(&self) -> bool {
-        self.pending_recovery_release
+        self.monitor.is_pending()
     }
 
     /// Marks the monitor as waiting (or not) for activity before releasing REC.
     pub fn set_pending(&mut self, pending: bool) {
-        self.pending_recovery_release = pending;
+        self.monitor.set_pending(pending);
     }
 
     /// Returns the timestamp of the last Jetson→USB frame observed.
-    pub fn last_rx(&self) -> Option<Instant> {
-        self.last_rx
+    pub fn last_rx(&self) -> Option<FirmwareInstant> {
+        self.monitor.last_rx()
     }
 
     /// Returns the timestamp of the last USB→Jetson frame forwarded.
-    pub fn last_tx(&self) -> Option<Instant> {
-        self.last_tx
+    pub fn last_tx(&self) -> Option<FirmwareInstant> {
+        self.monitor.last_tx()
     }
 
     /// Processes a single pending activity event, if available.
     pub fn poll(&mut self, telemetry: &mut TelemetryRecorder) -> Option<BridgeActivityUpdate> {
         let event = self.subscriber.try_receive().ok()?;
+        let update = self.monitor.process_event(event, telemetry.inner_mut())?;
 
-        if event.bytes == 0 {
-            return None;
-        }
-
-        self.track(&event);
-        let release = self.handle_recovery_release(&event);
-        let telemetry_event = self.record_telemetry(telemetry, &event);
-        log_bridge_activity(&event, release);
-
-        Some(BridgeActivityUpdate {
-            event,
-            telemetry_event,
-            release_recovery: release,
-        })
+        log_bridge_activity(&update.event, update.release_recovery);
+        Some(update)
     }
 
     /// Marks the USB control link as attached and logs the transition.
-    pub fn notify_usb_connect(&mut self, timestamp: Instant) {
-        if self.link_attached {
-            return;
-        }
-
-        self.link_attached = true;
-        log_usb_connect(timestamp);
+    pub fn notify_usb_connect(&mut self, timestamp: FirmwareInstant) {
+        self.monitor.notify_usb_connect();
+        log_usb_connect(timestamp.into_embassy());
     }
 
     /// Marks the USB control link as detached, returning the resulting notice.
-    pub fn notify_usb_disconnect(&mut self, timestamp: Instant) -> Option<BridgeDisconnectNotice> {
-        if !self.link_attached {
-            return None;
-        }
-
-        self.link_attached = false;
-        let pending = self.pending_recovery_release;
-        self.pending_recovery_release = false;
-
-        log_usb_disconnect(pending, timestamp);
-        Some(BridgeDisconnectNotice {
-            timestamp,
-            recovery_release_pending: pending,
-        })
-    }
-
-    fn track(&mut self, event: &BridgeActivityEvent) {
-        match event.kind {
-            BridgeActivityKind::UsbToJetson => self.last_tx = Some(event.timestamp),
-            BridgeActivityKind::JetsonToUsb => self.last_rx = Some(event.timestamp),
-        }
-    }
-
-    fn handle_recovery_release(&mut self, event: &BridgeActivityEvent) -> bool {
-        if event.kind != BridgeActivityKind::JetsonToUsb || !self.pending_recovery_release {
-            return false;
-        }
-
-        self.pending_recovery_release = false;
-        true
-    }
-
-    fn record_telemetry(
+    pub fn notify_usb_disconnect(
         &mut self,
-        telemetry: &mut TelemetryRecorder,
-        event: &BridgeActivityEvent,
-    ) -> Option<EventId> {
-        match event.kind {
-            BridgeActivityKind::JetsonToUsb => Some(telemetry.record(
-                TelemetryEventKind::RecoveryConsoleActivity,
-                TelemetryPayload::None,
-                event.timestamp,
-            )),
-            BridgeActivityKind::UsbToJetson => None,
-        }
+        timestamp: FirmwareInstant,
+    ) -> Option<BridgeDisconnectNotice> {
+        let notice = self.monitor.notify_usb_disconnect(timestamp)?;
+
+        log_usb_disconnect(
+            notice.recovery_release_pending,
+            notice.timestamp.into_embassy(),
+        );
+        Some(notice)
     }
 }
 
@@ -303,12 +229,13 @@ fn log_usb_disconnect(pending_recovery: bool, timestamp: Instant) {
 
 #[cfg(target_os = "none")]
 fn log_bridge_activity(event: &BridgeActivityEvent, release: bool) {
+    let timestamp = event.timestamp.into_embassy();
     match event.kind {
         BridgeActivityKind::UsbToJetson => {
             defmt::debug!(
                 "bridge: usb→jetson bytes={=usize} t={}us",
                 event.bytes,
-                event.timestamp.as_micros()
+                timestamp.as_micros()
             );
         }
         BridgeActivityKind::JetsonToUsb => {
@@ -316,13 +243,13 @@ fn log_bridge_activity(event: &BridgeActivityEvent, release: bool) {
                 defmt::info!(
                     "bridge: recovery console activity bytes={=usize} t={}us (releasing REC)",
                     event.bytes,
-                    event.timestamp.as_micros()
+                    timestamp.as_micros()
                 );
             } else {
                 defmt::debug!(
                     "bridge: jetson→usb bytes={=usize} t={}us",
                     event.bytes,
-                    event.timestamp.as_micros()
+                    timestamp.as_micros()
                 );
             }
         }
@@ -331,12 +258,13 @@ fn log_bridge_activity(event: &BridgeActivityEvent, release: bool) {
 
 #[cfg(not(target_os = "none"))]
 fn log_bridge_activity(event: &BridgeActivityEvent, release: bool) {
+    let timestamp = event.timestamp.into_embassy();
     match event.kind {
         BridgeActivityKind::UsbToJetson => {
             println!(
                 "bridge: usb→jetson bytes={} t={}us",
                 event.bytes,
-                event.timestamp.as_micros()
+                timestamp.as_micros()
             );
         }
         BridgeActivityKind::JetsonToUsb => {
@@ -344,13 +272,13 @@ fn log_bridge_activity(event: &BridgeActivityEvent, release: bool) {
                 println!(
                     "bridge: recovery console activity bytes={} t={}us (releasing REC)",
                     event.bytes,
-                    event.timestamp.as_micros()
+                    timestamp.as_micros()
                 );
             } else {
                 println!(
                     "bridge: jetson→usb bytes={} t={}us",
                     event.bytes,
-                    event.timestamp.as_micros()
+                    timestamp.as_micros()
                 );
             }
         }
@@ -375,6 +303,7 @@ fn log_usb_disconnect(pending_recovery: bool, timestamp: Instant) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::straps::TelemetryEventKind;
 
     #[test]
     fn jetson_activity_releases_pending_recovery_and_records_telemetry() {
@@ -389,7 +318,7 @@ mod tests {
         sender
             .try_send(BridgeActivityEvent {
                 kind: BridgeActivityKind::JetsonToUsb,
-                timestamp: Instant::from_micros(5_000),
+                timestamp: FirmwareInstant::from(Instant::from_micros(5_000)),
                 bytes: 17,
             })
             .expect("send should succeed");
@@ -402,7 +331,10 @@ mod tests {
         assert!(!monitor.is_pending());
         let record = telemetry.latest().expect("telemetry missing");
         assert_eq!(record.event, TelemetryEventKind::RecoveryConsoleActivity);
-        assert_eq!(record.timestamp, Instant::from_micros(5_000));
+        assert_eq!(
+            record.timestamp,
+            FirmwareInstant::from(Instant::from_micros(5_000))
+        );
         assert_eq!(update.telemetry_event, Some(record.id));
     }
 
@@ -417,7 +349,7 @@ mod tests {
         sender
             .try_send(BridgeActivityEvent {
                 kind: BridgeActivityKind::UsbToJetson,
-                timestamp: Instant::from_micros(10_000),
+                timestamp: FirmwareInstant::from(Instant::from_micros(10_000)),
                 bytes: 8,
             })
             .expect("send should succeed");
@@ -427,7 +359,10 @@ mod tests {
             .expect("activity update missing");
 
         assert!(!update.release_recovery);
-        assert_eq!(monitor.last_tx(), Some(Instant::from_micros(10_000)));
+        assert_eq!(
+            monitor.last_tx(),
+            Some(FirmwareInstant::from(Instant::from_micros(10_000)))
+        );
         assert_eq!(monitor.last_rx(), None);
         assert!(update.telemetry_event.is_none());
         assert_eq!(telemetry.len(), 0);
@@ -446,7 +381,7 @@ mod tests {
         sender
             .try_send(BridgeActivityEvent {
                 kind: BridgeActivityKind::JetsonToUsb,
-                timestamp: Instant::from_micros(15_000),
+                timestamp: FirmwareInstant::from(Instant::from_micros(15_000)),
                 bytes: 0,
             })
             .expect("send should succeed");

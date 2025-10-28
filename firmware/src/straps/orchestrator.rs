@@ -254,7 +254,8 @@ mod tests {
 }
 
 #[cfg(target_os = "none")]
-fn log_control_link_attached(timestamp: Instant) {
+fn log_control_link_attached(timestamp: FirmwareInstant) {
+    let timestamp = timestamp.into_embassy();
     defmt::info!(
         "orchestrator: USB control link attached t={}us",
         timestamp.as_micros()
@@ -262,7 +263,8 @@ fn log_control_link_attached(timestamp: Instant) {
 }
 
 #[cfg(not(target_os = "none"))]
-fn log_control_link_attached(timestamp: Instant) {
+fn log_control_link_attached(timestamp: FirmwareInstant) {
+    let timestamp = timestamp.into_embassy();
     println!(
         "orchestrator: USB control link attached t={}us",
         timestamp.as_micros()
@@ -270,7 +272,8 @@ fn log_control_link_attached(timestamp: Instant) {
 }
 
 #[cfg(target_os = "none")]
-fn log_control_link_lost(had_active_run: bool, recovery_pending: bool, timestamp: Instant) {
+fn log_control_link_lost(had_active_run: bool, recovery_pending: bool, timestamp: FirmwareInstant) {
+    let timestamp = timestamp.into_embassy();
     let tag = match (had_active_run, recovery_pending) {
         (true, true) => "awaiting recovery console activity",
         (true, false) => "aborting active strap run",
@@ -285,7 +288,8 @@ fn log_control_link_lost(had_active_run: bool, recovery_pending: bool, timestamp
 }
 
 #[cfg(not(target_os = "none"))]
-fn log_control_link_lost(had_active_run: bool, recovery_pending: bool, timestamp: Instant) {
+fn log_control_link_lost(had_active_run: bool, recovery_pending: bool, timestamp: FirmwareInstant) {
+    let timestamp = timestamp.into_embassy();
     let tag = match (had_active_run, recovery_pending) {
         (true, true) => "awaiting recovery console activity",
         (true, false) => "aborting active strap run",
@@ -300,7 +304,8 @@ fn log_control_link_lost(had_active_run: bool, recovery_pending: bool, timestamp
 }
 
 #[cfg(target_os = "none")]
-fn log_strap_drive(line: StrapId, action: StrapAction, timestamp: Instant) {
+fn log_strap_drive(line: StrapId, action: StrapAction, timestamp: FirmwareInstant) {
+    let timestamp = timestamp.into_embassy();
     let strap = strap_metadata(line);
     defmt::info!(
         "straps:{} {} pin={} driver={} J14-{=u8} t={}us",
@@ -314,7 +319,8 @@ fn log_strap_drive(line: StrapId, action: StrapAction, timestamp: Instant) {
 }
 
 #[cfg(not(target_os = "none"))]
-fn log_strap_drive(line: StrapId, action: StrapAction, timestamp: Instant) {
+fn log_strap_drive(line: StrapId, action: StrapAction, timestamp: FirmwareInstant) {
+    let timestamp = timestamp.into_embassy();
     let strap = strap_metadata(line);
     println!(
         "straps:{} {} pin={} driver={} J14-{} t={}us",
@@ -633,7 +639,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
         }
 
         self.control_link_attached = true;
-        log_control_link_attached(Instant::now());
+        log_control_link_attached(FirmwareInstant::from(Instant::now()));
     }
 
     /// Handles a USB control link disconnect by aborting active work and logging telemetry.
@@ -644,7 +650,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
     ) {
         let (timestamp, recovery_pending) = notice
             .map(|notice| (notice.timestamp, notice.recovery_release_pending))
-            .unwrap_or_else(|| (Instant::now(), false));
+            .unwrap_or_else(|| (FirmwareInstant::from(Instant::now()), false));
 
         if !self.control_link_attached {
             return;
@@ -715,7 +721,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
         &mut self,
         telemetry: &mut TelemetryRecorder,
         outcome: SequenceOutcome,
-        timestamp: Instant,
+        timestamp: FirmwareInstant,
     ) -> Result<(), ActiveRunError> {
         let (kind, started_at, requested_at, events_recorded) = match self.active_run.as_ref() {
             Some(run) => (
@@ -727,9 +733,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
             None => return Err(ActiveRunError::NoActiveRun),
         };
 
-        let start = started_at
-            .or(Some(requested_at))
-            .map(FirmwareInstant::into_embassy);
+        let start = started_at.or(Some(requested_at));
         let event_id =
             telemetry.record_sequence_completion(kind, outcome, start, timestamp, events_recorded);
 
@@ -964,7 +968,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
             return false;
         }
 
-        self.drive_strap_transition(step.line, step.action, telemetry, now);
+        self.drive_strap_transition(step.line, step.action, telemetry, now.into());
         true
     }
 
@@ -1018,7 +1022,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
         }
 
         if cooldown.as_ticks() == 0 {
-            let _ = self.complete_run(telemetry, SequenceOutcome::SkippedCooldown, now);
+            let _ = self.complete_run(telemetry, SequenceOutcome::SkippedCooldown, now.into());
             true
         } else {
             false
@@ -1033,7 +1037,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
     ) -> bool {
         let cooldown = core_duration_to_embassy(cooldown);
         if cooldown.as_ticks() == 0 {
-            let _ = self.complete_run(telemetry, SequenceOutcome::SkippedCooldown, now);
+            let _ = self.complete_run(telemetry, SequenceOutcome::SkippedCooldown, now.into());
             return true;
         }
 
@@ -1047,7 +1051,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
                 if let Some(run) = self.active_run.as_mut() {
                     run.cooldown_deadline = None;
                 }
-                let _ = self.complete_run(telemetry, SequenceOutcome::Completed, now);
+                let _ = self.complete_run(telemetry, SequenceOutcome::Completed, now.into());
                 true
             }
             Some(_) => false,
@@ -1091,7 +1095,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
 
         log_brown_out_detected(&sample, retries_used, retry_budget);
 
-        let release_timestamp = Instant::now();
+        let release_timestamp = FirmwareInstant::from(Instant::now());
         self.release_all_straps(telemetry, release_timestamp);
 
         if !did_retry {
@@ -1131,7 +1135,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
                         telemetry.record(
                             TelemetryEventKind::PowerStable,
                             TelemetryPayload::None,
-                            sample.timestamp,
+                            FirmwareInstant::from(sample.timestamp),
                         );
                         log_power_recovered(&sample, attempt, holdoff);
                         return;
@@ -1155,7 +1159,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
                         telemetry.record(
                             TelemetryEventKind::PowerStable,
                             TelemetryPayload::None,
-                            now,
+                            FirmwareInstant::from(now),
                         );
                         log_power_recovered(&sample, attempt, holdoff);
                         return;
@@ -1172,7 +1176,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
         line: StrapId,
         action: StrapAction,
         telemetry: &mut TelemetryRecorder,
-        timestamp: Instant,
+        timestamp: FirmwareInstant,
     ) {
         self.strap_driver.apply(line, action);
         log_strap_drive(line, action, timestamp);
@@ -1183,7 +1187,11 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
         }
     }
 
-    fn release_all_straps(&mut self, telemetry: &mut TelemetryRecorder, timestamp: Instant) {
+    fn release_all_straps(
+        &mut self,
+        telemetry: &mut TelemetryRecorder,
+        timestamp: FirmwareInstant,
+    ) {
         for strap in super::ALL_STRAPS.iter() {
             self.drive_strap_transition(strap.id, StrapAction::ReleaseHigh, telemetry, timestamp);
         }
@@ -1211,12 +1219,12 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
                 continue;
             }
 
-            let timestamp = Instant::now();
+            let timestamp = FirmwareInstant::from(Instant::now());
             let queue_depth = self.pending_commands.len();
             let event_id = telemetry.record_command_pending(
                 command.kind,
                 queue_depth,
-                command.requested_at.into_embassy(),
+                command.requested_at,
                 timestamp,
             );
 
@@ -1252,8 +1260,8 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
                     let start_event = telemetry.record_command_started(
                         run.command.kind,
                         self.pending_commands.len(),
-                        run.command.requested_at.into_embassy(),
-                        Instant::now(),
+                        run.command.requested_at,
+                        FirmwareInstant::from(Instant::now()),
                     );
                     let _ = run.track_event(start_event);
                 }

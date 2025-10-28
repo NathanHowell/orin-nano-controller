@@ -1,153 +1,80 @@
-//! Telemetry ring buffer and logging helpers.
+//! Telemetry ring buffer wrapper with firmware-specific logging helpers.
 //!
-//! This module owns the fixed-capacity telemetry ring described in
-//! `specs/001-build-orin-controller/data-model.md`. It records strap transitions
-//! with timestamps, keeps elapsed timing between successive strap events, and
-//! surfaces defmt/host console hooks so future tasks can emit observability data
-//! without duplicating boilerplate.
+//! The underlying ring buffer implementation lives in `controller-core`. This
+//! module wraps the shared recorder so firmware can continue emitting defmt /
+//! host console diagnostics whenever telemetry is recorded.
 
 #![allow(dead_code)]
 
-use embassy_time::{Duration, Instant};
-use heapless::{HistoryBuffer, OldestOrdered};
+use core::time::Duration;
 
 use crate::straps::{
-    EventId, SequenceOutcome, StrapAction, StrapId, StrapSequenceKind, TelemetryEventKind,
+    EventId, FirmwareInstant, SequenceOutcome, StrapAction, StrapId, StrapSequenceKind,
+    TelemetryEventKind,
 };
+pub use controller_core::telemetry::{
+    CommandTelemetry, SequenceTelemetry, TELEMETRY_RING_CAPACITY, TelemetryPayload,
+};
+use controller_core::telemetry::{
+    TelemetryRecord as CoreTelemetryRecord, TelemetryRecorder as CoreTelemetryRecorder,
+    TelemetryRing as CoreTelemetryRing,
+};
+use heapless::OldestOrdered;
 
-/// Total number of telemetry entries retained in memory.
-pub const TELEMETRY_RING_CAPACITY: usize = 128;
+/// Telemetry ring buffer type alias specialized for firmware timestamps.
+pub type TelemetryRing = CoreTelemetryRing<FirmwareInstant>;
 
-/// Telemetry ring buffer type alias.
-pub type TelemetryRing = HistoryBuffer<TelemetryRecord, TELEMETRY_RING_CAPACITY>;
+/// Telemetry record alias specialized for firmware timestamps.
+pub type TelemetryRecord = CoreTelemetryRecord<FirmwareInstant>;
 
-/// Structured payloads attached to telemetry records.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TelemetryPayload {
-    /// No additional metadata for the event.
-    None,
-    /// Details captured when a strap assertion or release occurs.
-    Strap(StrapTelemetry),
-    /// Metadata emitted for command queue events.
-    Command(CommandTelemetry),
-    /// Summary information recorded when a strap sequence completes.
-    Sequence(SequenceTelemetry),
-}
-
-impl TelemetryPayload {
-    // Additional helpers will be added as more payload variants appear.
-}
-
-/// Extra metadata tracked for strap transitions.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct StrapTelemetry {
-    pub line: StrapId,
-    pub action: StrapAction,
-    pub elapsed_since_previous: Option<Duration>,
-}
-
-/// Metadata describing queued-command telemetry events.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CommandTelemetry {
-    pub queue_depth: u8,
-    pub pending_for: Option<Duration>,
-}
-
-/// Metadata describing the completion of a strap sequence.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SequenceTelemetry {
-    pub outcome: SequenceOutcome,
-    pub duration: Option<Duration>,
-    pub events_recorded: u8,
-}
-
-/// Telemetry record stored in the ring buffer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct TelemetryRecord {
-    pub id: EventId,
-    pub timestamp: Instant,
-    pub event: TelemetryEventKind,
-    pub details: TelemetryPayload,
-}
-
-/// Records telemetry events into a fixed-size ring buffer and mirrors strap
-/// transitions to defmt / stdout for quick inspection during bring-up.
+/// Firmware-side telemetry recorder that decorates the shared implementation
+/// with logging hooks.
 pub struct TelemetryRecorder {
-    ring: TelemetryRing,
-    last_transition_at: Option<Instant>,
-    next_event_id: EventId,
+    inner: CoreTelemetryRecorder<FirmwareInstant>,
 }
 
 impl TelemetryRecorder {
     /// Creates a new telemetry recorder with an empty history.
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
-            ring: HistoryBuffer::new(),
-            last_transition_at: None,
-            next_event_id: 0,
+            inner: CoreTelemetryRecorder::new(),
         }
     }
 
     /// Returns an iterator over the recorded telemetry in chronological order.
     pub fn oldest_first(&self) -> OldestOrdered<'_, TelemetryRecord, TELEMETRY_RING_CAPACITY> {
-        self.ring.oldest_ordered()
+        self.inner.oldest_first()
     }
 
     /// Returns the most recent telemetry record, if available.
     pub fn latest(&self) -> Option<&TelemetryRecord> {
-        self.ring.recent()
+        self.inner.latest()
     }
 
     /// Returns the number of records currently stored.
     pub fn len(&self) -> usize {
-        self.ring.len()
+        self.inner.len()
     }
 
-    /// Records a strap transition, capturing elapsed time since the previous strap event
-    /// and emitting a defmt/console log for immediate feedback.
+    /// Records a strap transition and mirrors the event to firmware logs.
     pub fn record_strap_transition(
         &mut self,
         line: StrapId,
         action: StrapAction,
-        timestamp: Instant,
+        timestamp: FirmwareInstant,
     ) -> EventId {
-        let elapsed = self
-            .last_transition_at
-            .map(|previous| timestamp.saturating_duration_since(previous));
-        self.last_transition_at = Some(timestamp);
+        let id = self.inner.record_strap_transition(line, action, timestamp);
 
-        let event = match action {
-            StrapAction::AssertLow => TelemetryEventKind::StrapAsserted(line),
-            StrapAction::ReleaseHigh => TelemetryEventKind::StrapReleased(line),
-        };
-
-        let payload = TelemetryPayload::Strap(StrapTelemetry {
-            line,
-            action,
-            elapsed_since_previous: elapsed,
-        });
-
-        let id = self.record(event, payload, timestamp);
-        log_strap_transition(line, action, timestamp, elapsed);
-        id
-    }
-
-    /// Records an arbitrary telemetry event with the supplied payload.
-    pub fn record(
-        &mut self,
-        event: TelemetryEventKind,
-        payload: TelemetryPayload,
-        timestamp: Instant,
-    ) -> EventId {
-        let id = self.next_event_id;
-        self.next_event_id = self.next_event_id.wrapping_add(1);
-
-        self.ring.write(TelemetryRecord {
-            id,
-            timestamp,
-            event,
-            details: payload,
-        });
+        if let Some(record) = self.inner.latest().copied() {
+            if let TelemetryPayload::Strap(details) = record.details {
+                log_strap_transition(
+                    line,
+                    action,
+                    record.timestamp,
+                    details.elapsed_since_previous,
+                );
+            }
+        }
 
         id
     }
@@ -157,23 +84,19 @@ impl TelemetryRecorder {
         &mut self,
         kind: StrapSequenceKind,
         queue_depth: usize,
-        requested_at: Instant,
-        timestamp: Instant,
+        requested_at: FirmwareInstant,
+        timestamp: FirmwareInstant,
     ) -> EventId {
-        let wait = timestamp.saturating_duration_since(requested_at);
-        let payload = TelemetryPayload::Command(CommandTelemetry {
-            queue_depth: truncate_depth(queue_depth),
-            pending_for: Some(wait),
-        });
+        let id = self
+            .inner
+            .record_command_pending(kind, queue_depth, requested_at, timestamp);
 
-        let id = self.record(TelemetryEventKind::CommandPending(kind), payload, timestamp);
-        log_command_event(
-            CommandStage::Pending,
-            kind,
-            timestamp,
-            queue_depth,
-            Some(wait),
-        );
+        if let Some(record) = self.inner.latest().copied() {
+            if let TelemetryPayload::Command(details) = record.details {
+                log_command_event(CommandStage::Pending, kind, record.timestamp, details);
+            }
+        }
+
         id
     }
 
@@ -182,23 +105,19 @@ impl TelemetryRecorder {
         &mut self,
         kind: StrapSequenceKind,
         queue_depth: usize,
-        requested_at: Instant,
-        timestamp: Instant,
+        requested_at: FirmwareInstant,
+        timestamp: FirmwareInstant,
     ) -> EventId {
-        let wait = timestamp.saturating_duration_since(requested_at);
-        let payload = TelemetryPayload::Command(CommandTelemetry {
-            queue_depth: truncate_depth(queue_depth),
-            pending_for: Some(wait),
-        });
+        let id = self
+            .inner
+            .record_command_started(kind, queue_depth, requested_at, timestamp);
 
-        let id = self.record(TelemetryEventKind::CommandStarted(kind), payload, timestamp);
-        log_command_event(
-            CommandStage::Started,
-            kind,
-            timestamp,
-            queue_depth,
-            Some(wait),
-        );
+        if let Some(record) = self.inner.latest().copied() {
+            if let TelemetryPayload::Command(details) = record.details {
+                log_command_event(CommandStage::Started, kind, record.timestamp, details);
+            }
+        }
+
         id
     }
 
@@ -207,24 +126,40 @@ impl TelemetryRecorder {
         &mut self,
         kind: StrapSequenceKind,
         outcome: SequenceOutcome,
-        started_at: Option<Instant>,
-        timestamp: Instant,
+        started_at: Option<FirmwareInstant>,
+        timestamp: FirmwareInstant,
         events_recorded: usize,
     ) -> EventId {
-        let duration = started_at.map(|start| timestamp.saturating_duration_since(start));
-        let payload = TelemetryPayload::Sequence(SequenceTelemetry {
+        let id = self.inner.record_sequence_completion(
+            kind,
             outcome,
-            duration,
-            events_recorded: truncate_count(events_recorded),
-        });
-
-        let id = self.record(
-            TelemetryEventKind::SequenceComplete(kind),
-            payload,
+            started_at,
             timestamp,
+            events_recorded,
         );
-        log_sequence_completion(kind, outcome, timestamp, duration, events_recorded);
+
+        if let Some(record) = self.inner.latest().copied() {
+            if let TelemetryPayload::Sequence(details) = record.details {
+                log_sequence_completion(kind, outcome, record.timestamp, details);
+            }
+        }
+
         id
+    }
+
+    /// Records an arbitrary telemetry event with the supplied payload.
+    pub fn record(
+        &mut self,
+        event: TelemetryEventKind,
+        payload: TelemetryPayload,
+        timestamp: FirmwareInstant,
+    ) -> EventId {
+        self.inner.record(event, payload, timestamp)
+    }
+
+    /// Provides mutable access to the shared telemetry recorder.
+    pub(crate) fn inner_mut(&mut self) -> &mut CoreTelemetryRecorder<FirmwareInstant> {
+        &mut self.inner
     }
 }
 
@@ -237,22 +172,24 @@ impl Default for TelemetryRecorder {
 fn log_strap_transition(
     line: StrapId,
     action: StrapAction,
-    timestamp: Instant,
+    timestamp: FirmwareInstant,
     elapsed: Option<Duration>,
 ) {
     let line_label = strap_line_label(line);
     let action_label = strap_action_label(action);
-    let timestamp_us = timestamp.as_micros();
-    let elapsed_us = elapsed.map(|value| value.as_micros());
+    let timestamp_us = timestamp.into_embassy().as_micros();
+    let elapsed_us = elapsed.map(duration_to_micros);
 
-    match elapsed_us {
-        Some(delta) => emit_log(line_label, action_label, timestamp_us, Some(delta)),
-        None => emit_log(line_label, action_label, timestamp_us, None),
-    }
+    emit_strap_log(line_label, action_label, timestamp_us, elapsed_us);
 }
 
 #[cfg(target_os = "none")]
-fn emit_log(line: &'static str, action: &'static str, timestamp_us: u64, delta_us: Option<u64>) {
+fn emit_strap_log(
+    line: &'static str,
+    action: &'static str,
+    timestamp_us: u64,
+    delta_us: Option<u64>,
+) {
     if let Some(delta) = delta_us {
         defmt::info!(
             "telemetry:straps {} {} t={}us Δ={}us",
@@ -267,7 +204,12 @@ fn emit_log(line: &'static str, action: &'static str, timestamp_us: u64, delta_u
 }
 
 #[cfg(not(target_os = "none"))]
-fn emit_log(line: &'static str, action: &'static str, timestamp_us: u64, delta_us: Option<u64>) {
+fn emit_strap_log(
+    line: &'static str,
+    action: &'static str,
+    timestamp_us: u64,
+    delta_us: Option<u64>,
+) {
     if let Some(delta) = delta_us {
         println!(
             "telemetry:straps {} {} t={}us Δ={}us",
@@ -278,7 +220,7 @@ fn emit_log(line: &'static str, action: &'static str, timestamp_us: u64, delta_u
     }
 }
 
-const fn strap_line_label(line: StrapId) -> &'static str {
+fn strap_line_label(line: StrapId) -> &'static str {
     match line {
         StrapId::Reset => "RESET*",
         StrapId::Rec => "REC*",
@@ -287,7 +229,7 @@ const fn strap_line_label(line: StrapId) -> &'static str {
     }
 }
 
-const fn strap_action_label(action: StrapAction) -> &'static str {
+fn strap_action_label(action: StrapAction) -> &'static str {
     match action {
         StrapAction::AssertLow => "assert",
         StrapAction::ReleaseHigh => "release",
@@ -303,43 +245,26 @@ enum CommandStage {
 fn log_command_event(
     stage: CommandStage,
     kind: StrapSequenceKind,
-    timestamp: Instant,
-    queue_depth: usize,
-    wait: Option<Duration>,
+    timestamp: FirmwareInstant,
+    details: CommandTelemetry,
 ) {
     let stage_label = command_stage_label(stage);
     let kind_label = sequence_kind_label(kind);
-    let timestamp_us = timestamp.as_micros();
-    let queue_depth = u32::from(truncate_depth(queue_depth));
-    let wait_us = wait.map(|value| value.as_micros());
+    let timestamp_us = timestamp.into_embassy().as_micros();
+    let queue_depth = u32::from(details.queue_depth);
+    let wait_us = details.pending_for.map(duration_to_micros);
 
     emit_command_log(stage_label, kind_label, timestamp_us, queue_depth, wait_us);
 }
 
-const fn truncate_depth(depth: usize) -> u8 {
-    if depth > u8::MAX as usize {
-        u8::MAX
-    } else {
-        depth as u8
-    }
-}
-
-const fn truncate_count(count: usize) -> u8 {
-    if count > u8::MAX as usize {
-        u8::MAX
-    } else {
-        count as u8
-    }
-}
-
-const fn command_stage_label(stage: CommandStage) -> &'static str {
+fn command_stage_label(stage: CommandStage) -> &'static str {
     match stage {
         CommandStage::Pending => "pending",
         CommandStage::Started => "started",
     }
 }
 
-const fn sequence_kind_label(kind: StrapSequenceKind) -> &'static str {
+fn sequence_kind_label(kind: StrapSequenceKind) -> &'static str {
     match kind {
         StrapSequenceKind::NormalReboot => "NormalReboot",
         StrapSequenceKind::RecoveryEntry => "RecoveryEntry",
@@ -348,7 +273,22 @@ const fn sequence_kind_label(kind: StrapSequenceKind) -> &'static str {
     }
 }
 
-const fn sequence_outcome_label(outcome: SequenceOutcome) -> &'static str {
+fn log_sequence_completion(
+    kind: StrapSequenceKind,
+    outcome: SequenceOutcome,
+    timestamp: FirmwareInstant,
+    details: SequenceTelemetry,
+) {
+    let kind_label = sequence_kind_label(kind);
+    let outcome_label = sequence_outcome_label(outcome);
+    let timestamp_us = timestamp.into_embassy().as_micros();
+    let duration_us = details.duration.map(duration_to_micros);
+    let events = u32::from(details.events_recorded);
+
+    emit_sequence_log(kind_label, outcome_label, timestamp_us, duration_us, events);
+}
+
+fn sequence_outcome_label(outcome: SequenceOutcome) -> &'static str {
     match outcome {
         SequenceOutcome::Completed => "Completed",
         SequenceOutcome::SkippedCooldown => "SkippedCooldown",
@@ -404,22 +344,6 @@ fn emit_command_log(
     }
 }
 
-fn log_sequence_completion(
-    kind: StrapSequenceKind,
-    outcome: SequenceOutcome,
-    timestamp: Instant,
-    duration: Option<Duration>,
-    events_recorded: usize,
-) {
-    let kind_label = sequence_kind_label(kind);
-    let outcome_label = sequence_outcome_label(outcome);
-    let timestamp_us = timestamp.as_micros();
-    let duration_us = duration.map(|value| value.as_micros());
-    let events = u32::from(truncate_count(events_recorded));
-
-    emit_sequence_log(kind_label, outcome_label, timestamp_us, duration_us, events);
-}
-
 #[cfg(target_os = "none")]
 fn emit_sequence_log(
     kind: &'static str,
@@ -469,13 +393,16 @@ fn emit_sequence_log(
     }
 }
 
+fn duration_to_micros(duration: Duration) -> u64 {
+    duration.as_micros().min(u128::from(u64::MAX)) as u64
+}
+
 #[cfg(all(test, not(target_os = "none")))]
 mod tests {
     use super::*;
-    use crate::straps::{SequenceOutcome, StrapAction, StrapId, StrapSequenceKind};
 
-    fn micros(value: u64) -> Instant {
-        Instant::from_micros(value)
+    fn micros(value: u64) -> FirmwareInstant {
+        FirmwareInstant::from(embassy_time::Instant::from_micros(value))
     }
 
     #[test]
@@ -545,7 +472,6 @@ mod tests {
     #[test]
     fn records_command_started_event_with_truncated_depth() {
         let mut recorder = TelemetryRecorder::new();
-        // Seed an initial event to bump the ID counter.
         recorder.record_command_pending(
             StrapSequenceKind::RecoveryEntry,
             1,

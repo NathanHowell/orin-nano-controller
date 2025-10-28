@@ -12,13 +12,13 @@ mod telemetry;
 mod usb;
 
 #[cfg(target_os = "none")]
-use defmt_rtt as _;
-#[cfg(target_os = "none")]
-use critical_section::{self, RawRestoreState};
-#[cfg(target_os = "none")]
 use cortex_m::interrupt;
 #[cfg(target_os = "none")]
 use cortex_m::register::primask;
+#[cfg(target_os = "none")]
+use critical_section::{self, RawRestoreState};
+#[cfg(target_os = "none")]
+use defmt_rtt as _;
 #[cfg(target_os = "none")]
 struct InterruptCriticalSection;
 #[cfg(target_os = "none")]
@@ -33,7 +33,9 @@ unsafe impl critical_section::Impl for InterruptCriticalSection {
 
     unsafe fn release(restore_state: RawRestoreState) {
         if restore_state {
-            unsafe { interrupt::enable(); }
+            unsafe {
+                interrupt::enable();
+            }
         }
     }
 }
@@ -64,9 +66,9 @@ use crate::bridge::{
 #[cfg(target_os = "none")]
 use crate::repl::{REPL_RX_QUEUE, REPL_TX_QUEUE, ReplFrame, ReplSession};
 #[cfg(target_os = "none")]
-use crate::straps::CommandProducer;
-#[cfg(target_os = "none")]
 use crate::straps::orchestrator::{HardwareStrapDriver, NoopPowerMonitor, StrapOrchestrator};
+#[cfg(target_os = "none")]
+use crate::straps::{CommandProducer, FirmwareInstant};
 #[cfg(target_os = "none")]
 use crate::telemetry::TelemetryRecorder;
 #[cfg(target_os = "none")]
@@ -288,7 +290,7 @@ async fn bridge_task(
                 usb_activity
                     .send(BridgeActivityEvent {
                         kind: BridgeActivityKind::UsbToJetson,
-                        timestamp: Instant::now(),
+                        timestamp: FirmwareInstant::from(Instant::now()),
                         bytes: data.len(),
                     })
                     .await;
@@ -312,7 +314,7 @@ async fn bridge_task(
                     jetson_activity
                         .send(BridgeActivityEvent {
                             kind: BridgeActivityKind::JetsonToUsb,
-                            timestamp: Instant::now(),
+                            timestamp: FirmwareInstant::from(Instant::now()),
                             bytes: count,
                         })
                         .await;

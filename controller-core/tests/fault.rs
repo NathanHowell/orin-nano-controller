@@ -6,7 +6,7 @@ use controller_core::orchestrator::{
 };
 use controller_core::repl::commands::{CommandError, CommandExecutor, CommandOutcome};
 use controller_core::sequences::{
-    fault::FAULT_RECOVERY_MAX_RETRIES, fault_recovery_template, StrapSequenceKind,
+    StrapSequenceKind, fault::FAULT_RECOVERY_MAX_RETRIES, fault_recovery_template,
 };
 use heapless::Vec as HeaplessVec;
 
@@ -40,7 +40,11 @@ fn fault_recover_defaults_to_template_retry_budget() {
     assert_eq!(ack.retry_budget, FAULT_RECOVERY_MAX_RETRIES);
 
     let commands = executor.scheduler().producer().commands();
-    assert_eq!(commands.len(), 1, "fault recover should enqueue exactly one command");
+    assert_eq!(
+        commands.len(),
+        1,
+        "fault recover should enqueue exactly one command"
+    );
 
     let scheduled = &commands[0];
     assert_eq!(scheduled.kind, StrapSequenceKind::FaultRecovery);
@@ -101,11 +105,7 @@ fn fault_recover_rejects_retry_override_exceeding_budget() {
     let now = MockInstant::micros(10);
 
     let error = executor
-        .execute(
-            "fault recover retries=4",
-            now,
-            CommandSource::UsbHost,
-        )
+        .execute("fault recover retries=4", now, CommandSource::UsbHost)
         .expect_err("override above template budget should fail");
 
     match error {
