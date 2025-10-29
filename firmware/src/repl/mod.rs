@@ -145,7 +145,7 @@ impl LineBuffer {
         self.buf.truncate(start);
         self.buf
             .extend_from_slice(replacement.as_bytes())
-            .map_err(|()| LineError::Overflow)
+            .map_err(|_| LineError::Overflow)
     }
 }
 

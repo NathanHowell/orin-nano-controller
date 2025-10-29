@@ -11,7 +11,7 @@
 
 use core::{convert::TryFrom, fmt, time::Duration};
 
-use heapless::{HistoryBuffer, OldestOrdered, Vec};
+use heapless::{HistoryBuf, OldestOrdered, Vec};
 
 use crate::orchestrator::{EventId, SequenceOutcome};
 use crate::sequences::{StrapAction, StrapId, StrapSequenceKind};
@@ -275,7 +275,7 @@ where
 
 /// Telemetry ring buffer type alias.
 pub type TelemetryRing<TInstant, const CAPACITY: usize = TELEMETRY_RING_CAPACITY> =
-    HistoryBuffer<TelemetryRecord<TInstant>, CAPACITY>;
+    HistoryBuf<TelemetryRecord<TInstant>, CAPACITY>;
 
 /// Records telemetry events into a fixed-size ring buffer.
 pub struct TelemetryRecorder<TInstant, const CAPACITY: usize = TELEMETRY_RING_CAPACITY>
@@ -295,14 +295,14 @@ where
     #[must_use]
     pub const fn new() -> Self {
         Self {
-            ring: HistoryBuffer::new(),
+            ring: HistoryBuf::new(),
             last_transition_at: None,
             next_event_id: 0,
         }
     }
 
     /// Returns an iterator over the recorded telemetry in chronological order.
-    pub fn oldest_first(&self) -> OldestOrdered<'_, TelemetryRecord<TInstant>, CAPACITY> {
+    pub fn oldest_first(&self) -> OldestOrdered<'_, TelemetryRecord<TInstant>> {
         self.ring.oldest_ordered()
     }
 

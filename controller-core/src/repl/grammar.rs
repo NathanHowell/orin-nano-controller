@@ -18,8 +18,6 @@ use heapless::{String as HeaplessString, Vec as HeaplessVec};
 use regal::IncrementalError;
 use regal::TokenCache;
 use regal_macros::RegalLexer;
-#[allow(deprecated)]
-use winnow::error::ErrorKind;
 use winnow::error::{ErrMode, ParserError};
 use winnow::prelude::*;
 use winnow::stream::Stream;
@@ -238,12 +236,13 @@ impl GrammarError {
 
 type Input<'src, 'slice> = &'slice [Token<'src>];
 
-#[allow(deprecated)]
 impl<'src, 'slice> ParserError<Input<'src, 'slice>> for GrammarError
 where
     'src: 'slice,
 {
-    fn from_error_kind(input: &Input<'src, 'slice>, _kind: ErrorKind) -> Self {
+    type Inner = Self;
+
+    fn from_input(input: &Input<'src, 'slice>) -> Self {
         GrammarError::unexpected("token", input.first())
     }
 
@@ -251,13 +250,16 @@ where
         self,
         _input: &Input<'src, 'slice>,
         _token_start: &<Input<'src, 'slice> as Stream>::Checkpoint,
-        _kind: ErrorKind,
     ) -> Self {
         self
     }
 
     fn or(self, other: Self) -> Self {
         other
+    }
+
+    fn into_inner(self) -> Result<Self::Inner, Self> {
+        Ok(self)
     }
 }
 
@@ -419,7 +421,8 @@ pub fn parse(line: &str) -> Result<Command<'_>, ParseError> {
     Ok(command)
 }
 
-fn command<'src, 'slice>() -> impl Parser<Input<'src, 'slice>, Command<'src>, GrammarError>
+fn command<'src, 'slice>(
+) -> impl Parser<Input<'src, 'slice>, Command<'src>, ErrMode<GrammarError>>
 where
     'src: 'slice,
 {
@@ -762,7 +765,7 @@ impl<'a> CommandState<'a> {
 fn expect_kind<'src, 'slice>(
     kind: TokenKind,
     label: &'static str,
-) -> impl Parser<Input<'src, 'slice>, Token<'src>, GrammarError>
+) -> impl Parser<Input<'src, 'slice>, Token<'src>, ErrMode<GrammarError>>
 where
     'src: 'slice,
 {

@@ -13,7 +13,7 @@ use crate::straps::{
     TelemetryEventKind,
 };
 pub use controller_core::telemetry::{
-    CommandTelemetry, SequenceTelemetry, TELEMETRY_RING_CAPACITY, TelemetryPayload,
+    CommandTelemetry, SequenceTelemetry, TelemetryPayload,
 };
 use controller_core::telemetry::{
     TelemetryRecord as CoreTelemetryRecord, TelemetryRecorder as CoreTelemetryRecorder,
@@ -42,7 +42,7 @@ impl TelemetryRecorder {
     }
 
     /// Returns an iterator over the recorded telemetry in chronological order.
-    pub fn oldest_first(&self) -> OldestOrdered<'_, TelemetryRecord, TELEMETRY_RING_CAPACITY> {
+    pub fn oldest_first(&self) -> OldestOrdered<'_, TelemetryRecord> {
         self.inner.oldest_first()
     }
 
