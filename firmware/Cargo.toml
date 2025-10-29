@@ -19,6 +19,5 @@ cortex-m-rt = { workspace = true }
 embassy-executor = { workspace = true, features = ["arch-cortex-m", "executor-thread"] }
 embassy-stm32 = { workspace = true, features = ["memory-x", "stm32g0b1ke", "time-driver-tim1"] }
 embassy-usb = { workspace = true, default-features = false }
-panic-halt = { workspace = true }
 embedded-io-async = "0.6.1"
 critical-section = { workspace = true }
