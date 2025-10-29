@@ -9,10 +9,10 @@
 use core::time::Duration;
 
 use controller_core::repl::status::{
-    BridgeActivitySnapshot, DebugLinkState, StatusSnapshot, StrapLevel, StrapSample,
+    DebugLinkState, StatusAccumulator, StatusInstant, StatusSnapshot,
 };
 use controller_core::sequences::StrapId;
-use portable_atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
+use portable_atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 
 #[cfg(target_os = "none")]
 use cortex_m::peripheral::DCB;
@@ -20,6 +20,16 @@ use cortex_m::peripheral::DCB;
 use crate::straps::FirmwareInstant;
 
 const UNKNOWN_VDD: u32 = 0;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct MonotonicMicros(u32);
+
+impl StatusInstant for MonotonicMicros {
+    fn duration_since(now: Self, earlier: Self) -> Option<Duration> {
+        let delta = now.0.wrapping_sub(earlier.0);
+        Some(Duration::from_micros(u64::from(delta)))
+    }
+}
 
 /// Bitmask describing currently asserted straps (1 == asserted).
 static STRAP_MASK: AtomicU8 = AtomicU8::new(0);
@@ -38,39 +48,25 @@ fn bit_for(id: StrapId) -> u8 {
     1 << id.as_index()
 }
 
-fn encode_micros(micros: u32) -> u32 {
-    micros.wrapping_add(1)
+fn encode_micros(timestamp: MonotonicMicros) -> u32 {
+    timestamp.0.wrapping_add(1)
 }
 
-fn decode_micros(raw: u32) -> Option<u32> {
+fn decode_micros(raw: u32) -> Option<MonotonicMicros> {
     if raw == 0 {
         None
     } else {
-        Some(raw.wrapping_sub(1))
+        Some(MonotonicMicros(raw.wrapping_sub(1)))
     }
 }
 
-fn micros_from_instant(instant: FirmwareInstant) -> u32 {
+fn micros_from_instant(instant: FirmwareInstant) -> MonotonicMicros {
     let micros = instant.into_embassy().as_micros();
     if micros >= u32::MAX as u64 {
-        u32::MAX - 1
+        MonotonicMicros(u32::MAX - 1)
     } else {
-        micros as u32
+        MonotonicMicros(micros as u32)
     }
-}
-
-fn duration_since(now: FirmwareInstant, raw: u32) -> Option<Duration> {
-    let stored = decode_micros(raw)?;
-    let now_micros = micros_from_instant(now);
-    let delta = now_micros.wrapping_sub(stored);
-    Some(Duration::from_micros(u64::from(delta)))
-}
-
-fn bridge_activity(now: FirmwareInstant) -> BridgeActivitySnapshot {
-    let waiting = BRIDGE_WAITING.load(Ordering::Relaxed);
-    let tx_idle = duration_since(now, BRIDGE_TX_MICROS.load(Ordering::Relaxed));
-    let rx_idle = duration_since(now, BRIDGE_RX_MICROS.load(Ordering::Relaxed));
-    BridgeActivitySnapshot::new(waiting, tx_idle, rx_idle)
 }
 
 fn control_link_attached() -> bool {
@@ -90,17 +86,6 @@ pub fn record_strap_asserted(id: StrapId, asserted: bool) {
 /// Clears every strap bit, marking them as released.
 pub fn reset_strap_states() {
     STRAP_MASK.store(0, Ordering::Relaxed);
-}
-
-/// Returns the sampled strap states.
-pub fn strap_samples() -> [StrapSample; 4] {
-    let mask = STRAP_MASK.load(Ordering::Relaxed);
-    [
-        sample_from_mask(mask, StrapId::Reset),
-        sample_from_mask(mask, StrapId::Rec),
-        sample_from_mask(mask, StrapId::Pwr),
-        sample_from_mask(mask, StrapId::Apo),
-    ]
 }
 
 /// Stores the latest millivolt reading (0 marks unknown).
@@ -141,18 +126,24 @@ pub fn set_control_link_attached(attached: bool) {
 
 /// Builds a [`StatusSnapshot`] using the stored metrics.
 pub fn snapshot(now: FirmwareInstant) -> StatusSnapshot {
-    StatusSnapshot {
-        strap_levels: strap_samples(),
-        vdd_mv: vdd_sample(),
-        bridge: bridge_activity(now),
-        debug_link: detect_debug_link(),
-        control_link_attached: control_link_attached(),
-    }
-}
+    let mut accumulator = StatusAccumulator::<MonotonicMicros>::new();
+    accumulator.set_strap_mask(STRAP_MASK.load(Ordering::Relaxed));
+    accumulator.set_vdd_sample(vdd_sample());
+    accumulator.set_control_link_attached(control_link_attached());
+    accumulator.set_debug_link(detect_debug_link());
 
-fn sample_from_mask(mask: u8, id: StrapId) -> StrapSample {
-    let asserted = mask & bit_for(id) != 0;
-    StrapSample::new(id, StrapLevel::from_asserted(asserted))
+    {
+        let bridge = accumulator.bridge_tracker();
+        bridge.set_waiting_for_activity(BRIDGE_WAITING.load(Ordering::Relaxed));
+        if let Some(tx) = decode_micros(BRIDGE_TX_MICROS.load(Ordering::Relaxed)) {
+            bridge.record_tx(tx);
+        }
+        if let Some(rx) = decode_micros(BRIDGE_RX_MICROS.load(Ordering::Relaxed)) {
+            bridge.record_rx(rx);
+        }
+    }
+
+    accumulator.snapshot(micros_from_instant(now))
 }
 
 #[cfg(target_os = "none")]

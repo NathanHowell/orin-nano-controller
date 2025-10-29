@@ -16,7 +16,8 @@ use heapless::Vec;
 
 #[cfg(target_os = "none")]
 use controller_core::orchestrator::{
-    CommandEnqueueError, CommandSource, ScheduleError, SequenceScheduler,
+    CommandSource, QueueErrorKind, ScheduleError, ScheduleErrorInfo, SequenceScheduler,
+    schedule_error_info,
 };
 #[cfg(target_os = "none")]
 use controller_core::repl::commands::{
@@ -24,9 +25,9 @@ use controller_core::repl::commands::{
     RecoveryAck,
 };
 #[cfg(target_os = "none")]
-use controller_core::repl::status::{StatusFormatter, StatusProvider, StatusSnapshot};
-#[cfg(target_os = "none")]
 use controller_core::repl::completion::{CompletionEngine, CompletionResult};
+#[cfg(target_os = "none")]
+use controller_core::repl::status::{StatusFormatter, StatusProvider, StatusSnapshot};
 #[cfg(target_os = "none")]
 use controller_core::sequences::StrapSequenceKind;
 #[cfg(target_os = "none")]
@@ -486,12 +487,12 @@ fn describe_schedule_error(
     error: ScheduleError<(), FirmwareInstant>,
     now: Instant,
 ) {
-    match error {
-        ScheduleError::Queue(queue) => describe_queue_error(buffer, queue),
-        ScheduleError::MissingTemplate(kind) => {
+    match schedule_error_info(&error) {
+        ScheduleErrorInfo::Queue(queue) => describe_queue_error(buffer, queue),
+        ScheduleErrorInfo::MissingTemplate(kind) => {
             let _ = write!(buffer, "ERR missing-template {}", sequence_label(kind));
         }
-        ScheduleError::CooldownActive { kind, ready_at } => {
+        ScheduleErrorInfo::CooldownActive { kind, ready_at } => {
             let ready_at = ready_at.into_embassy();
             let remaining = ready_at.saturating_duration_since(now).as_millis();
             let _ = write!(
@@ -505,15 +506,15 @@ fn describe_schedule_error(
 }
 
 #[cfg(target_os = "none")]
-fn describe_queue_error(buffer: &mut String<FRAME_CAPACITY>, error: CommandEnqueueError<()>) {
+fn describe_queue_error(buffer: &mut String<FRAME_CAPACITY>, error: QueueErrorKind) {
     match error {
-        CommandEnqueueError::QueueFull => {
+        QueueErrorKind::QueueFull => {
             let _ = buffer.push_str("ERR busy queue-full");
         }
-        CommandEnqueueError::Disconnected => {
+        QueueErrorKind::QueueDisconnected => {
             let _ = buffer.push_str("ERR busy queue-disconnected");
         }
-        CommandEnqueueError::Other(_) => {
+        QueueErrorKind::QueueOther => {
             let _ = buffer.push_str("ERR busy queue-error");
         }
     }

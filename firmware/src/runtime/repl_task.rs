@@ -15,7 +15,8 @@ pub async fn run() -> ! {
         register_default_templates(templates).expect("scheduler template registration");
     }
 
-    let executor = CommandExecutor::new(scheduler).with_status_provider(FirmwareStatusProvider::default());
+    let executor =
+        CommandExecutor::new(scheduler).with_status_provider(FirmwareStatusProvider::default());
     let mut session = ReplSession::new(executor);
     session.run().await;
 }

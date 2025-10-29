@@ -1197,6 +1197,43 @@ impl<E, Instant> From<CommandEnqueueError<E>> for ScheduleError<E, Instant> {
     }
 }
 
+/// Normalised queue error categories used for diagnostics/output.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QueueErrorKind {
+    QueueFull,
+    QueueDisconnected,
+    QueueOther,
+}
+
+/// Simplified description of a [`ScheduleError`] for downstream formatting.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScheduleErrorInfo<Instant> {
+    Queue(QueueErrorKind),
+    MissingTemplate(StrapSequenceKind),
+    CooldownActive {
+        kind: StrapSequenceKind,
+        ready_at: Instant,
+    },
+}
+
+/// Converts a [`ScheduleError`] into a stable descriptor for formatting/reporting.
+pub fn schedule_error_info<E, Instant: Copy>(
+    error: &ScheduleError<E, Instant>,
+) -> ScheduleErrorInfo<Instant> {
+    match error {
+        ScheduleError::Queue(kind) => ScheduleErrorInfo::Queue(match kind {
+            CommandEnqueueError::QueueFull => QueueErrorKind::QueueFull,
+            CommandEnqueueError::Disconnected => QueueErrorKind::QueueDisconnected,
+            CommandEnqueueError::Other(_) => QueueErrorKind::QueueOther,
+        }),
+        ScheduleError::MissingTemplate(kind) => ScheduleErrorInfo::MissingTemplate(*kind),
+        ScheduleError::CooldownActive { kind, ready_at } => ScheduleErrorInfo::CooldownActive {
+            kind: *kind,
+            ready_at: *ready_at,
+        },
+    }
+}
+
 /// High-level scheduler that enqueues strap sequences while respecting cooldowns.
 pub struct SequenceScheduler<P, const CAPACITY: usize = MAX_SEQUENCE_TEMPLATES>
 where

@@ -925,8 +925,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
         now: Instant,
     ) -> bool {
         if let Some(run) = self.active_run.as_mut() {
-            let waiting_on_bridge =
-                matches!(step.completion, StepCompletion::OnBridgeActivity);
+            let waiting_on_bridge = matches!(step.completion, StepCompletion::OnBridgeActivity);
             status::record_bridge_waiting(waiting_on_bridge);
             run.waiting_on_bridge = waiting_on_bridge;
             run.step_started_at = Some(now.into());
@@ -1125,7 +1124,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
                     let now = Instant::now();
                     let now_instant = FirmwareInstant::from(now);
                     let sample = PowerSample::new(now_instant, None);
-                     status::record_vdd_sample(sample.millivolts);
+                    status::record_vdd_sample(sample.millivolts);
                     self.last_power_sample = Some(sample);
                     if first_stable.is_none() {
                         first_stable = Some(sample);

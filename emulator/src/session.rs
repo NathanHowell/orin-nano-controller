@@ -7,24 +7,39 @@ use std::rc::Rc;
 use std::time::{Duration, Instant as HostInstant};
 
 use controller_core::orchestrator::{
-    CommandEnqueueError, CommandQueueProducer, CommandSource, ScheduleError, SequenceCommand,
-    SequenceScheduler, register_default_templates,
+    CommandEnqueueError, CommandQueueProducer, CommandSource, QueueErrorKind, ScheduleError,
+    ScheduleErrorInfo, SequenceCommand, SequenceScheduler, register_default_templates,
+    schedule_error_info,
 };
 use controller_core::repl::commands::{
     CommandError, CommandExecutor, CommandOutcome, FaultAck, RebootAck, RecoveryAck,
 };
-use controller_core::repl::status::{
-    BridgeActivitySnapshot, DebugLinkState, StatusFormatter, StatusProvider, StatusSnapshot,
-    StrapLevel, StrapSample,
-};
 use controller_core::repl::completion::{CompletionEngine, Replacement};
 use controller_core::repl::grammar::RecoveryCommand;
+use controller_core::repl::status::{
+    StatusAccumulator, StatusFormatter, StatusInstant, StatusProvider, StatusSnapshot,
+};
 use controller_core::sequences::fault::FAULT_RECOVERY_MAX_RETRIES;
 use controller_core::sequences::{
-    SequenceTemplate, StepCompletion, StrapAction, StrapId, StrapSequenceKind, StrapStep,
+    SequenceTemplate, StepCompletion, StrapAction, StrapSequenceKind, StrapStep,
 };
 
 const DEFAULT_QUEUE_DEPTH: usize = 4;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct HostStatusInstant(HostInstant);
+
+impl From<HostInstant> for HostStatusInstant {
+    fn from(value: HostInstant) -> Self {
+        Self(value)
+    }
+}
+
+impl StatusInstant for HostStatusInstant {
+    fn duration_since(now: Self, earlier: Self) -> Option<Duration> {
+        now.0.checked_duration_since(earlier.0)
+    }
+}
 
 type HostExecutor = CommandExecutor<SequenceScheduler<HostQueue>, EmulatorStatusProvider>;
 
@@ -107,7 +122,7 @@ pub struct Session {
     started_at: HostInstant,
     command_count: usize,
     completion: CompletionEngine,
-    status: Rc<RefCell<StatusState>>,
+    status: Rc<RefCell<StatusAccumulator<HostStatusInstant>>>,
 }
 
 impl Session {
@@ -119,7 +134,10 @@ impl Session {
             let templates = scheduler.templates_mut();
             register_default_templates(templates).expect("register default sequence templates");
         }
-        let status = Rc::new(RefCell::new(StatusState::new()));
+        let mut status_state = StatusAccumulator::<HostStatusInstant>::new();
+        status_state.set_vdd_sample(Some(3300));
+        status_state.set_control_link_attached(true);
+        let status = Rc::new(RefCell::new(status_state));
         let provider = EmulatorStatusProvider::new(status.clone());
         let executor = CommandExecutor::new(scheduler).with_status_provider(provider);
 
@@ -444,9 +462,9 @@ impl Session {
                 let asserted = matches!(step.action, StrapAction::AssertLow);
                 status.set_strap(strap.id, asserted);
                 let waiting = matches!(step.completion, StepCompletion::OnBridgeActivity);
-                status.set_waiting_on_bridge(waiting);
+                status.bridge_tracker().set_waiting_for_activity(waiting);
             }
-            status.set_waiting_on_bridge(false);
+            status.bridge_tracker().set_waiting_for_activity(false);
         }
 
         {
@@ -681,12 +699,14 @@ fn describe_schedule_error(
     error: &ScheduleError<(), HostInstant>,
     session_start: HostInstant,
 ) -> String {
-    match error {
-        ScheduleError::Queue(CommandEnqueueError::QueueFull) => "queue-full".to_string(),
-        ScheduleError::Queue(CommandEnqueueError::Disconnected) => "queue-disconnected".to_string(),
-        ScheduleError::Queue(CommandEnqueueError::Other(_)) => "queue-error".to_string(),
-        ScheduleError::MissingTemplate(kind) => format!("missing-template {:?}", kind),
-        ScheduleError::CooldownActive { ready_at, .. } => {
+    match schedule_error_info(error) {
+        ScheduleErrorInfo::Queue(QueueErrorKind::QueueFull) => "queue-full".to_string(),
+        ScheduleErrorInfo::Queue(QueueErrorKind::QueueDisconnected) => {
+            "queue-disconnected".to_string()
+        }
+        ScheduleErrorInfo::Queue(QueueErrorKind::QueueOther) => "queue-error".to_string(),
+        ScheduleErrorInfo::MissingTemplate(kind) => format!("missing-template {:?}", kind),
+        ScheduleErrorInfo::CooldownActive { ready_at, .. } => {
             let duration = ready_at.duration_since(session_start);
             format!("cooldown-active ready=+{}ms", duration.as_millis())
         }
@@ -783,89 +803,18 @@ fn format_bridge_line(snapshot: &StatusSnapshot) -> String {
     line
 }
 
-#[derive(Clone)]
-struct StatusState {
-    strap_mask: u8,
-    vdd_mv: Option<u16>,
-    bridge_rx: Option<HostInstant>,
-    bridge_tx: Option<HostInstant>,
-    waiting_on_bridge: bool,
-    control_link_attached: bool,
-}
-
-impl StatusState {
-    fn new() -> Self {
-        Self {
-            strap_mask: 0,
-            vdd_mv: Some(3300),
-            bridge_rx: None,
-            bridge_tx: None,
-            waiting_on_bridge: false,
-            control_link_attached: true,
-        }
-    }
-
-    fn set_strap(&mut self, id: StrapId, asserted: bool) {
-        let bit = 1 << id.as_index();
-        if asserted {
-            self.strap_mask |= bit;
-        } else {
-            self.strap_mask &= !bit;
-        }
-    }
-
-    fn set_waiting_on_bridge(&mut self, waiting: bool) {
-        self.waiting_on_bridge = waiting;
-    }
-
-    fn strap_samples(&self) -> [StrapSample; 4] {
-        [
-            strap_sample_from_mask(self.strap_mask, StrapId::Reset),
-            strap_sample_from_mask(self.strap_mask, StrapId::Rec),
-            strap_sample_from_mask(self.strap_mask, StrapId::Pwr),
-            strap_sample_from_mask(self.strap_mask, StrapId::Apo),
-        ]
-    }
-
-    fn bridge_snapshot(&self, now: HostInstant) -> BridgeActivitySnapshot {
-        let tx_idle = self
-            .bridge_tx
-            .and_then(|timestamp| now.checked_duration_since(timestamp));
-        let rx_idle = self
-            .bridge_rx
-            .and_then(|timestamp| now.checked_duration_since(timestamp));
-        BridgeActivitySnapshot::new(self.waiting_on_bridge, tx_idle, rx_idle)
-    }
-
-    fn snapshot(&self, now: HostInstant) -> StatusSnapshot {
-        StatusSnapshot {
-            strap_levels: self.strap_samples(),
-            vdd_mv: self.vdd_mv,
-            bridge: self.bridge_snapshot(now),
-            debug_link: DebugLinkState::Unknown,
-            control_link_attached: self.control_link_attached,
-        }
-    }
-}
-
-fn strap_sample_from_mask(mask: u8, id: StrapId) -> StrapSample {
-    let bit = 1 << id.as_index();
-    let asserted = (mask & bit) != 0;
-    StrapSample::new(id, StrapLevel::from_asserted(asserted))
-}
-
 struct EmulatorStatusProvider {
-    state: Rc<RefCell<StatusState>>,
+    state: Rc<RefCell<StatusAccumulator<HostStatusInstant>>>,
 }
 
 impl EmulatorStatusProvider {
-    fn new(state: Rc<RefCell<StatusState>>) -> Self {
+    fn new(state: Rc<RefCell<StatusAccumulator<HostStatusInstant>>>) -> Self {
         Self { state }
     }
 }
 
 impl StatusProvider<HostInstant> for EmulatorStatusProvider {
     fn snapshot(&mut self, now: HostInstant) -> Option<StatusSnapshot> {
-        Some(self.state.borrow().snapshot(now))
+        Some(self.state.borrow().snapshot(HostStatusInstant::from(now)))
     }
 }
