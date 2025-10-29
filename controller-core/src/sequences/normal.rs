@@ -29,7 +29,7 @@ pub const RESET_PULSE_MIN: Duration = Duration::from_millis(20);
 /// Cooldown enforced after completing the normal reboot sequence.
 pub const NORMAL_REBOOT_COOLDOWN: Duration = Duration::from_millis(1_000);
 
-/// Ordered strap steps that implement the NormalReboot sequence.
+/// Ordered strap steps that implement the `NormalReboot` sequence.
 pub const NORMAL_REBOOT_STEPS: [StrapStep; 4] = [
     // Assert the power strap to simulate the front-panel button press.
     StrapStep::new(
@@ -68,7 +68,7 @@ pub const NORMAL_REBOOT_STEPS: [StrapStep; 4] = [
     ),
 ];
 
-/// Sequence template describing the NormalReboot workflow.
+/// Sequence template describing the `NormalReboot` workflow.
 pub const NORMAL_REBOOT_TEMPLATE: SequenceTemplate = SequenceTemplate::new(
     StrapSequenceKind::NormalReboot,
     &NORMAL_REBOOT_STEPS,
@@ -76,7 +76,8 @@ pub const NORMAL_REBOOT_TEMPLATE: SequenceTemplate = SequenceTemplate::new(
     None,
 );
 
-/// Returns the shared NormalReboot template.
+/// Returns the shared `NormalReboot` template.
+#[must_use]
 pub const fn normal_reboot_template() -> SequenceTemplate {
     NORMAL_REBOOT_TEMPLATE
 }

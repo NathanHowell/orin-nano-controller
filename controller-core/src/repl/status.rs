@@ -319,25 +319,33 @@ impl<'a> StatusFormatter<'a> {
     }
 
     /// Writes the strap-state line (e.g. `straps RESET*=released ...`).
+    ///
+    /// # Errors
+    /// Returns [`fmt::Error`] if the formatter reports a failure while
+    /// writing the strap line.
     pub fn write_straps_line<W: fmt::Write>(&self, writer: &mut W) -> fmt::Result {
         writer.write_str("straps")?;
-        for sample in self.snapshot.strap_levels.iter() {
+        for sample in &self.snapshot.strap_levels {
             let name = strap_by_id(sample.id).name;
             let state = if sample.level.is_asserted() {
                 "asserted"
             } else {
                 "released"
             };
-            write!(writer, " {}={}", name, state)?;
+            write!(writer, " {name}={state}")?;
         }
         Ok(())
     }
 
     /// Writes the power/debug line (e.g. `power vdd=3300mV control-link=attached debug=connected`).
+    ///
+    /// # Errors
+    /// Returns [`fmt::Error`] if the formatter reports a failure while
+    /// writing the line.
     pub fn write_power_line<W: fmt::Write>(&self, writer: &mut W) -> fmt::Result {
         writer.write_str("power vdd=")?;
         match self.snapshot.vdd_mv {
-            Some(mv) => write!(writer, "{}mV", mv)?,
+            Some(mv) => write!(writer, "{mv}mV")?,
             None => writer.write_str("unknown")?,
         }
 
@@ -359,6 +367,10 @@ impl<'a> StatusFormatter<'a> {
     }
 
     /// Writes the bridge line (e.g. `bridge waiting=false rx=+1.2s tx=n/a`).
+    ///
+    /// # Errors
+    /// Returns [`fmt::Error`] if the formatter reports a failure while
+    /// writing the line.
     pub fn write_bridge_line<W: fmt::Write>(&self, writer: &mut W) -> fmt::Result {
         writer.write_str("bridge waiting=")?;
         writer.write_str(if self.snapshot.bridge.waiting_for_activity {
@@ -383,15 +395,18 @@ fn write_duration<W: fmt::Write>(writer: &mut W, duration: Option<Duration>) -> 
     match duration {
         None => writer.write_str("n/a"),
         Some(value) if value >= Duration::from_secs(1) => {
-            let millis = value.as_millis() as u64;
-            let seconds = millis / 1_000;
-            let tenths = (millis % 1_000) / 100;
+            let seconds = value.as_secs();
+            let tenths = value.subsec_millis() / 100;
             write!(writer, "+{seconds}.{tenths}s")
         }
         Some(value) if value >= Duration::from_millis(1) => {
-            write!(writer, "+{}ms", value.as_millis())
+            let millis = value.as_millis();
+            write!(writer, "+{millis}ms")
         }
-        Some(value) => write!(writer, "+{}us", value.as_micros()),
+        Some(value) => {
+            let micros = value.as_micros();
+            write!(writer, "+{micros}us")
+        }
     }
 }
 

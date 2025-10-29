@@ -9,6 +9,7 @@ use controller_core::{orchestrator as core_orch, sequences as core_seq};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 #[cfg(target_os = "none")]
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use core::convert::TryFrom;
 use embassy_sync::channel::{Channel, Receiver, Sender, TrySendError};
 use embassy_time::{Duration as EmbassyDuration, Instant as EmbassyInstant};
 
@@ -68,7 +69,8 @@ impl Add<core::time::Duration> for FirmwareInstant {
     type Output = Self;
 
     fn add(self, rhs: core::time::Duration) -> Self::Output {
-        let micros = rhs.as_micros().min(u128::from(u64::MAX)) as u64;
+        let clamped = rhs.as_micros().min(u128::from(u64::MAX));
+        let micros = u64::try_from(clamped).unwrap_or(u64::MAX);
         let delta = EmbassyDuration::from_micros(micros);
         Self(self.0 + delta)
     }
@@ -113,7 +115,7 @@ impl<'a> CommandProducer<'a> {
     }
 }
 
-impl<'a> core_orch::CommandQueueProducer for CommandProducer<'a> {
+impl core_orch::CommandQueueProducer for CommandProducer<'_> {
     type Instant = FirmwareInstant;
     type Error = ();
 

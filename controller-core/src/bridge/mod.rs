@@ -70,6 +70,7 @@ where
     TInstant: Copy,
 {
     /// Creates a new monitor with no observed activity.
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             pending_recovery_release: false,
@@ -114,7 +115,7 @@ where
 
         self.track(&event);
         let release = self.handle_recovery_release(&event);
-        let telemetry_event = self.record_telemetry(telemetry, &event);
+        let telemetry_event = Self::record_telemetry(telemetry, &event);
 
         Some(BridgeActivityUpdate {
             event,
@@ -164,7 +165,6 @@ where
     }
 
     fn record_telemetry(
-        &mut self,
         telemetry: &mut TelemetryRecorder<TInstant>,
         event: &BridgeActivityEvent<TInstant>,
     ) -> Option<EventId>

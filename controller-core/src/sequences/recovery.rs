@@ -89,7 +89,7 @@ pub const RECOVERY_IMMEDIATE_STEPS: [StrapStep; 6] = [
     REC_RELEASE_STEP,
 ];
 
-/// Template describing the RecoveryEntry sequence.
+/// Template describing the `RecoveryEntry` sequence.
 pub const RECOVERY_ENTRY_TEMPLATE: SequenceTemplate = SequenceTemplate::new(
     StrapSequenceKind::RecoveryEntry,
     &RECOVERY_ENTRY_STEPS,
@@ -97,7 +97,7 @@ pub const RECOVERY_ENTRY_TEMPLATE: SequenceTemplate = SequenceTemplate::new(
     None,
 );
 
-/// Template describing the RecoveryImmediate sequence.
+/// Template describing the `RecoveryImmediate` sequence.
 pub const RECOVERY_IMMEDIATE_TEMPLATE: SequenceTemplate = SequenceTemplate::new(
     StrapSequenceKind::RecoveryImmediate,
     &RECOVERY_IMMEDIATE_STEPS,
@@ -105,12 +105,14 @@ pub const RECOVERY_IMMEDIATE_TEMPLATE: SequenceTemplate = SequenceTemplate::new(
     None,
 );
 
-/// Returns the RecoveryEntry template.
+/// Returns the `RecoveryEntry` template.
+#[must_use]
 pub const fn recovery_entry_template() -> SequenceTemplate {
     RECOVERY_ENTRY_TEMPLATE
 }
 
-/// Returns the RecoveryImmediate template.
+/// Returns the `RecoveryImmediate` template.
+#[must_use]
 pub const fn recovery_immediate_template() -> SequenceTemplate {
     RECOVERY_IMMEDIATE_TEMPLATE
 }

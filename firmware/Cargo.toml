@@ -3,6 +3,9 @@ name = "orin-nano-controller"
 version = "0.1.0"
 edition = "2024"
 
+[lints]
+workspace = true
+
 [dependencies]
 controller-core = { path = "../controller-core" }
 embassy-time = { workspace = true }

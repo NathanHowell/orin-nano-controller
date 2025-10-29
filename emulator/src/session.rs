@@ -170,9 +170,9 @@ impl Session {
 
         let now = HostInstant::now();
         match self.executor.execute(trimmed, now, CommandSource::UsbHost) {
-            Ok(CommandOutcome::Reboot(ack)) => self.handle_reboot(ack, elapsed),
-            Ok(CommandOutcome::Recovery(ack)) => self.handle_recovery(ack, elapsed),
-            Ok(CommandOutcome::Fault(ack)) => self.handle_fault(ack, elapsed),
+            Ok(CommandOutcome::Reboot(ack)) => self.handle_reboot(&ack, elapsed),
+            Ok(CommandOutcome::Recovery(ack)) => self.handle_recovery(&ack, elapsed),
+            Ok(CommandOutcome::Fault(ack)) => self.handle_fault(&ack, elapsed),
             Ok(CommandOutcome::Status(snapshot)) => self.handle_status(snapshot, elapsed),
             Err(CommandError::Parse(err)) => {
                 let message = format!("ERR syntax {err}");
@@ -225,11 +225,11 @@ impl Session {
                     Some(replacement_log),
                 )?;
                 return Ok(CompletionResponse::Applied { replacement });
-            } else {
-                self.transcript
-                    .log_completion_applied(elapsed, candidate, None)?;
-                return Ok(CompletionResponse::NoMatches);
             }
+
+            self.transcript
+                .log_completion_applied(elapsed, candidate, None)?;
+            return Ok(CompletionResponse::NoMatches);
         }
 
         self.transcript.log_completion_options(elapsed, &options)?;
@@ -265,7 +265,7 @@ impl Session {
 
     fn handle_reboot(
         &mut self,
-        ack: RebootAck<HostInstant>,
+        ack: &RebootAck<HostInstant>,
         elapsed: Duration,
     ) -> io::Result<Vec<String>> {
         let start_delay = ack.start_after.unwrap_or(Duration::ZERO);
@@ -282,7 +282,7 @@ impl Session {
 
     fn handle_recovery(
         &mut self,
-        ack: RecoveryAck<HostInstant>,
+        ack: &RecoveryAck<HostInstant>,
         elapsed: Duration,
     ) -> io::Result<Vec<String>> {
         match ack.command {
@@ -340,7 +340,7 @@ impl Session {
 
     fn handle_fault(
         &mut self,
-        ack: FaultAck<HostInstant>,
+        ack: &FaultAck<HostInstant>,
         elapsed: Duration,
     ) -> io::Result<Vec<String>> {
         let default_budget = {
@@ -368,8 +368,10 @@ impl Session {
                 );
 
                 if override_used {
-                    let note = format!("retry override applied (default {})", default_budget);
-                    SequenceNarration::with_notes(head, vec![note])
+                    let note = format!(
+                        "retry override applied (default {default_budget})"
+                    );
+                SequenceNarration::with_notes(head, vec![note])
                 } else {
                     SequenceNarration::new(head)
                 }
@@ -445,7 +447,7 @@ impl Session {
         }
 
         lines.push(format!(
-            "{:?} run-duration={} steps={}",
+            "{} run-duration={} steps={}",
             summary.sequence,
             format_duration_short(summary.run_duration),
             template.step_count()
@@ -457,7 +459,7 @@ impl Session {
 
         {
             let mut status = self.status.borrow_mut();
-            for step in template.steps().iter() {
+            for step in template.steps() {
                 let strap = step.strap();
                 let asserted = matches!(step.action, StrapAction::AssertLow);
                 status.set_strap(strap.id, asserted);
@@ -624,9 +626,9 @@ impl TranscriptLogger {
         cursor: usize,
     ) -> io::Result<()> {
         let message = format!(
-            "[TAB] prefix={prefix:?} suffix={suffix:?} cursor={cursor}",
-            prefix = prefix,
-            suffix = suffix,
+            "[TAB] prefix=\"{prefix}\" suffix=\"{suffix}\" cursor={cursor}",
+            prefix = prefix.escape_debug(),
+            suffix = suffix.escape_debug(),
             cursor = cursor
         );
         self.append_line(elapsed, TranscriptRole::Host, &message)
@@ -670,13 +672,14 @@ impl TranscriptLogger {
     }
 }
 
+#[derive(Clone, Copy)]
 enum TranscriptRole {
     Host,
     Emulator,
 }
 
 impl TranscriptRole {
-    fn prefix(&self) -> &'static str {
+    fn prefix(self) -> &'static str {
         match self {
             TranscriptRole::Host => "HOST>",
             TranscriptRole::Emulator => "EMU <",
@@ -705,7 +708,7 @@ fn describe_schedule_error(
             "queue-disconnected".to_string()
         }
         ScheduleErrorInfo::Queue(QueueErrorKind::QueueOther) => "queue-error".to_string(),
-        ScheduleErrorInfo::MissingTemplate(kind) => format!("missing-template {:?}", kind),
+        ScheduleErrorInfo::MissingTemplate(kind) => format!("missing-template {kind}"),
         ScheduleErrorInfo::CooldownActive { ready_at, .. } => {
             let duration = ready_at.duration_since(session_start);
             format!("cooldown-active ready=+{}ms", duration.as_millis())
@@ -726,7 +729,7 @@ fn describe_step(index: usize, step: &StrapStep) -> String {
     let mode = match step.completion {
         StepCompletion::AfterDuration => "after-duration".to_string(),
         StepCompletion::OnBridgeActivity => "bridge-activity".to_string(),
-        StepCompletion::OnEvent(event) => format!("event({event:?})"),
+        StepCompletion::OnEvent(event) => format!("event({event})"),
     };
     format!(
         "  {index}. {name} {action} hold={} {constraints} mode={mode}",

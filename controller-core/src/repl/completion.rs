@@ -38,6 +38,7 @@ pub struct CompletionEngine;
 
 impl CompletionEngine {
     /// Creates a new completion engine.
+    #[must_use]
     pub const fn new() -> Self {
         Self
     }
@@ -47,6 +48,7 @@ impl CompletionEngine {
     ///
     /// The cursor must be positioned at a valid UTF-8 boundary; the caller is
     /// expected to enforce ASCII-only input.
+    #[must_use]
     pub fn complete(&self, buffer: &str, cursor: usize) -> CompletionResult {
         if cursor > buffer.len() {
             return CompletionResult {
@@ -60,14 +62,11 @@ impl CompletionEngine {
         let prefix = &upto_cursor[prefix_start..];
         let leading = &upto_cursor[..prefix_start];
 
-        let leading_tokens = match grammar::lex(leading) {
-            Ok(tokens) => tokens,
-            Err(_) => {
-                return CompletionResult {
-                    replacement: None,
-                    options: HeaplessVec::new(),
-                };
-            }
+        let Ok(leading_tokens) = grammar::lex(leading) else {
+            return CompletionResult {
+                replacement: None,
+                options: HeaplessVec::new(),
+            };
         };
 
         if leading_tokens
@@ -90,9 +89,9 @@ impl CompletionEngine {
         }
 
         let mut matches: HeaplessVec<&'static str, MAX_SUGGESTIONS> = HeaplessVec::new();
-        for candidate in candidates.iter() {
+        for &candidate in &candidates {
             if starts_with_ignore_ascii_case(candidate, prefix) {
-                let _ = matches.push(*candidate);
+                let _ = matches.push(candidate);
             }
         }
 
@@ -145,7 +144,7 @@ fn collect_candidates(
     let mut options = HeaplessVec::new();
 
     match expectation {
-        CompletionExpectation::Root => {
+        CompletionExpectation::Root | CompletionExpectation::Topic(HelpTopics::Commands) => {
             for command in catalog::commands() {
                 let _ = options.push(command.name);
             }
@@ -169,14 +168,8 @@ fn collect_candidates(
                 let _ = options.push(subcommand.name);
             }
         }
-        CompletionExpectation::Topic(HelpTopics::Commands) => {
-            for command in catalog::commands() {
-                let _ = options.push(command.name);
-            }
-        }
         CompletionExpectation::Topic(HelpTopics::None)
-        | CompletionExpectation::Value(ValueSpec::None)
-        | CompletionExpectation::Value(ValueSpec::Duration)
+        | CompletionExpectation::Value(ValueSpec::None | ValueSpec::Duration)
         | CompletionExpectation::None => {}
         CompletionExpectation::Value(ValueSpec::IntegerAssignment { suggestions }) => {
             for suggestion in suggestions {
@@ -198,9 +191,8 @@ fn determine_expectation(tokens: &[Token<'_>]) -> CompletionExpectation {
         return CompletionExpectation::None;
     }
 
-    let (first, rest) = match tokens.split_first() {
-        Some(pair) => pair,
-        None => return CompletionExpectation::Root,
+    let Some((first, rest)) = tokens.split_first() else {
+        return CompletionExpectation::Root;
     };
 
     if first.kind != TokenKind::Ident {
@@ -301,8 +293,7 @@ fn evaluate_subcommands(
         Some((token, _)) if token.kind == TokenKind::Eol => {
             CompletionExpectation::Subcommands(branches)
         }
-        Some(_) => CompletionExpectation::Subcommands(branches),
-        None => CompletionExpectation::Subcommands(branches),
+        _ => CompletionExpectation::Subcommands(branches),
     }
 }
 
@@ -318,8 +309,7 @@ fn evaluate_topic(
             Some((token, _)) if token.kind == TokenKind::Eol => {
                 CompletionExpectation::Topic(topics)
             }
-            Some(_) => CompletionExpectation::Topic(topics),
-            None => CompletionExpectation::Topic(topics),
+            _ => CompletionExpectation::Topic(topics),
         },
     }
 }
@@ -335,8 +325,7 @@ fn evaluate_value<'src, 'slice>(
                 ValueProgress::Advance(rest)
             }
             Some((token, _)) if token.kind == TokenKind::Eol => ValueProgress::Need(spec),
-            Some(_) => ValueProgress::Need(spec),
-            None => ValueProgress::Need(spec),
+            _ => ValueProgress::Need(spec),
         },
         ValueSpec::IntegerAssignment { .. } => match tokens.split_first() {
             Some((token, rest)) if token.kind == TokenKind::Equals => match rest.split_first() {
@@ -346,12 +335,10 @@ fn evaluate_value<'src, 'slice>(
                 Some((value_token, _)) if value_token.kind == TokenKind::Eol => {
                     ValueProgress::Need(spec)
                 }
-                Some(_) => ValueProgress::Need(spec),
-                None => ValueProgress::Need(spec),
+                _ => ValueProgress::Need(spec),
             },
             Some((token, _)) if token.kind == TokenKind::Eol => ValueProgress::Need(spec),
-            Some(_) => ValueProgress::Need(spec),
-            None => ValueProgress::Need(spec),
+            _ => ValueProgress::Need(spec),
         },
     }
 }
@@ -410,9 +397,8 @@ fn should_append_space(expectation: CompletionExpectation, candidate: &'static s
         return false;
     }
 
-    let tokens = match grammar::lex(candidate) {
-        Ok(tokens) => tokens,
-        Err(_) => return false,
+    let Ok(tokens) = grammar::lex(candidate) else {
+        return false;
     };
 
     !matches!(

@@ -614,9 +614,10 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
         telemetry: &mut TelemetryRecorder,
         notice: Option<BridgeDisconnectNotice>,
     ) {
-        let (timestamp, recovery_pending) = notice
-            .map(|notice| (notice.timestamp, notice.recovery_release_pending))
-            .unwrap_or_else(|| (FirmwareInstant::from(Instant::now()), false));
+        let (timestamp, recovery_pending) = notice.map_or_else(
+            || (FirmwareInstant::from(Instant::now()), false),
+            |notice| (notice.timestamp, notice.recovery_release_pending),
+        );
 
         if !self.control_link_attached {
             return;
@@ -752,7 +753,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
                     continue;
                 }
 
-                match self.start_queued_command(queued, telemetry) {
+                match self.start_queued_command(&queued, telemetry) {
                     Ok(()) => self.last_rejection = None,
                     Err(rejection) => self.last_rejection = Some(rejection),
                 }
@@ -771,7 +772,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
                 Timer::after(delay).await;
             }
 
-            match self.start_queued_command(queued, telemetry) {
+            match self.start_queued_command(&queued, telemetry) {
                 Ok(()) => self.last_rejection = None,
                 Err(rejection) => self.last_rejection = Some(rejection),
             }
@@ -815,15 +816,11 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
                 None => return,
             };
 
-            let template = match self.templates.get(kind).cloned() {
-                Some(template) => template,
-                None => {
-                    if self.fail_run(SequenceError::UnexpectedState).is_ok() {
-                        continue;
-                    } else {
-                        return;
-                    }
+            let Some(template) = self.templates.get(kind).copied() else {
+                if self.fail_run(SequenceError::UnexpectedState).is_ok() {
+                    continue;
                 }
+                return;
             };
 
             let advanced = self.advance_run_state(&template, telemetry, now);
@@ -869,28 +866,22 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
                 }
             }
             SequenceState::Executing => {
-                let current_index = match self
+                let Some(current_index) = self
                     .active_run
                     .as_ref()
                     .and_then(|run| run.current_step_index)
-                {
-                    Some(index) => index,
-                    None => {
-                        if let Some(run) = self.active_run.as_mut() {
-                            run.state = SequenceState::Cooldown;
-                        }
-                        return self.begin_cooldown(template.cooldown_duration(), telemetry, now);
+                else {
+                    if let Some(run) = self.active_run.as_mut() {
+                        run.state = SequenceState::Cooldown;
                     }
+                    return self.begin_cooldown(template.cooldown_duration(), telemetry, now);
                 };
 
-                let step = match template.phases.get(current_index) {
-                    Some(step) => step,
-                    None => {
-                        if let Some(run) = self.active_run.as_mut() {
-                            run.state = SequenceState::Cooldown;
-                        }
-                        return self.begin_cooldown(template.cooldown_duration(), telemetry, now);
+                let Some(step) = template.phases.get(current_index) else {
+                    if let Some(run) = self.active_run.as_mut() {
+                        run.state = SequenceState::Cooldown;
                     }
+                    return self.begin_cooldown(template.cooldown_duration(), telemetry, now);
                 };
 
                 match step.completion {
@@ -907,8 +898,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
                             false
                         }
                     }
-                    StepCompletion::OnBridgeActivity => false,
-                    StepCompletion::OnEvent(_) => false,
+                    StepCompletion::OnBridgeActivity | StepCompletion::OnEvent(_) => false,
                 }
             }
             SequenceState::Cooldown => {
@@ -1171,7 +1161,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
         timestamp: FirmwareInstant,
     ) {
         status::reset_strap_states();
-        for strap in super::ALL_STRAPS.iter() {
+        for strap in &super::ALL_STRAPS {
             self.drive_strap_transition(strap.id, StrapAction::ReleaseHigh, telemetry, timestamp);
         }
     }
@@ -1222,7 +1212,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
 
     fn start_queued_command(
         &mut self,
-        queued: QueuedCommand,
+        queued: &QueuedCommand,
         telemetry: &mut TelemetryRecorder,
     ) -> Result<(), CommandRejection<FirmwareInstant>> {
         let pending_event = queued.pending_event;

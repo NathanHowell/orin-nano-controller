@@ -1,5 +1,6 @@
 mod session;
 
+use std::convert::TryFrom;
 use std::env;
 use std::io::{self, Write};
 use std::process;
@@ -182,7 +183,7 @@ fn handle_completion(
             beep(stdout)?;
         }
         CompletionResponse::Applied { replacement } => {
-            apply_replacement(buffer, cursor_index, replacement);
+            apply_replacement(buffer, cursor_index, &replacement);
             render_prompt(stdout, buffer, *cursor_index)?;
         }
         CompletionResponse::Suggestions { options } => {
@@ -197,7 +198,11 @@ fn handle_completion(
     Ok(())
 }
 
-fn apply_replacement(buffer: &mut String, cursor_index: &mut usize, replacement: Replacement) {
+fn apply_replacement(
+    buffer: &mut String,
+    cursor_index: &mut usize,
+    replacement: &Replacement,
+) {
     let clamped_start = replacement.start.min(buffer.len());
     let clamped_end = replacement.end.min(buffer.len());
     buffer.replace_range(clamped_start..clamped_end, replacement.value);
@@ -220,7 +225,8 @@ fn render_prompt(
         terminal::Clear(ClearType::CurrentLine)
     )?;
     write!(stdout, "> {buffer}")?;
-    let cursor_column = 2 + buffer[..cursor_index].chars().count() as u16;
+    let base = u16::try_from(buffer[..cursor_index].chars().count()).unwrap_or(u16::MAX);
+    let cursor_column = base.saturating_add(2);
     queue!(stdout, cursor::MoveToColumn(cursor_column))?;
     stdout.flush()
 }

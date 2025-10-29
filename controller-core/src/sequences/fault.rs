@@ -54,6 +54,7 @@ pub const FAULT_RECOVERY_TEMPLATE: SequenceTemplate = SequenceTemplate::new(
 );
 
 /// Returns the fault recovery template.
+#[must_use]
 pub const fn fault_recovery_template() -> SequenceTemplate {
     FAULT_RECOVERY_TEMPLATE
 }

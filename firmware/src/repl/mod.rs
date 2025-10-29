@@ -29,8 +29,6 @@ use controller_core::repl::completion::{CompletionEngine, CompletionResult};
 #[cfg(target_os = "none")]
 use controller_core::repl::status::{StatusFormatter, StatusProvider, StatusSnapshot};
 #[cfg(target_os = "none")]
-use controller_core::sequences::StrapSequenceKind;
-#[cfg(target_os = "none")]
 use core::fmt::Write as _;
 #[cfg(target_os = "none")]
 use embassy_sync::channel::{Receiver, Sender};
@@ -147,7 +145,7 @@ impl LineBuffer {
         self.buf.truncate(start);
         self.buf
             .extend_from_slice(replacement.as_bytes())
-            .map_err(|_| LineError::Overflow)
+            .map_err(|()| LineError::Overflow)
     }
 }
 
@@ -472,7 +470,7 @@ fn format_reboot_ack(buffer: &mut String<FRAME_CAPACITY>, ack: RebootAck<Firmwar
 #[cfg(target_os = "none")]
 fn format_recovery_ack(buffer: &mut String<FRAME_CAPACITY>, ack: RecoveryAck<FirmwareInstant>) {
     let _ = buffer.push_str("OK recovery");
-    let _ = write!(buffer, " sequence={:?}", ack.sequence);
+    let _ = write!(buffer, " sequence={}", ack.sequence);
 }
 
 #[cfg(target_os = "none")]
@@ -490,17 +488,12 @@ fn describe_schedule_error(
     match schedule_error_info(&error) {
         ScheduleErrorInfo::Queue(queue) => describe_queue_error(buffer, queue),
         ScheduleErrorInfo::MissingTemplate(kind) => {
-            let _ = write!(buffer, "ERR missing-template {}", sequence_label(kind));
+            let _ = write!(buffer, "ERR missing-template {}", kind);
         }
         ScheduleErrorInfo::CooldownActive { kind, ready_at } => {
             let ready_at = ready_at.into_embassy();
             let remaining = ready_at.saturating_duration_since(now).as_millis();
-            let _ = write!(
-                buffer,
-                "ERR cooldown {} ready-in={}ms",
-                sequence_label(kind),
-                remaining
-            );
+            let _ = write!(buffer, "ERR cooldown {} ready-in={}ms", kind, remaining);
         }
     }
 }
@@ -517,16 +510,6 @@ fn describe_queue_error(buffer: &mut String<FRAME_CAPACITY>, error: QueueErrorKi
         QueueErrorKind::QueueOther => {
             let _ = buffer.push_str("ERR busy queue-error");
         }
-    }
-}
-
-#[cfg(target_os = "none")]
-fn sequence_label(kind: StrapSequenceKind) -> &'static str {
-    match kind {
-        StrapSequenceKind::NormalReboot => "normal-reboot",
-        StrapSequenceKind::RecoveryEntry => "recovery-entry",
-        StrapSequenceKind::RecoveryImmediate => "recovery-immediate",
-        StrapSequenceKind::FaultRecovery => "fault-recovery",
     }
 }
 

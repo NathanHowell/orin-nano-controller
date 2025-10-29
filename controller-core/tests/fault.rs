@@ -1,5 +1,4 @@
-use core::ops::Add;
-use core::time::Duration;
+use core::{convert::TryFrom, ops::Add, time::Duration};
 
 use controller_core::orchestrator::{
     CommandEnqueueError, CommandQueueProducer, CommandSource, SequenceCommand, SequenceScheduler,
@@ -144,7 +143,9 @@ impl Add<Duration> for MockInstant {
     type Output = Self;
 
     fn add(self, rhs: Duration) -> Self::Output {
-        Self(self.0 + rhs.as_micros() as u64)
+        let micros = u64::try_from(rhs.as_micros())
+            .expect("test durations should fit within u64 micros");
+        Self(self.0 + micros)
     }
 }
 

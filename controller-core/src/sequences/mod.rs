@@ -5,7 +5,7 @@
 //! in this module is `no_std` friendly so the same data can be compiled for
 //! both the STM32 firmware and the host-side emulator.
 
-use core::time::Duration;
+use core::{fmt, time::Duration};
 
 use crate::telemetry::TelemetryEventKind;
 
@@ -20,7 +20,7 @@ pub use recovery::{
     recovery_immediate_template,
 };
 
-/// Longest sequence we expect to encode (FaultRecovery) plus one step of headroom.
+/// Longest sequence we expect to encode (`FaultRecovery`) plus one step of headroom.
 pub const MAX_SEQUENCE_STEPS: usize = 8;
 
 /// Identifier for the logical strap lines exposed by the controller.
@@ -34,6 +34,7 @@ pub enum StrapId {
 
 impl StrapId {
     /// Deterministic index for lookups into [`ALL_STRAPS`].
+    #[must_use]
     pub const fn as_index(self) -> usize {
         match self {
             StrapId::Reset => 0,
@@ -44,6 +45,7 @@ impl StrapId {
     }
 
     /// Attempts to construct a [`StrapId`] from a raw index.
+    #[must_use]
     pub const fn from_index(index: usize) -> Option<Self> {
         match index {
             0 => Some(StrapId::Reset),
@@ -52,6 +54,12 @@ impl StrapId {
             3 => Some(StrapId::Apo),
             _ => None,
         }
+    }
+}
+
+impl fmt::Display for StrapId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(strap_by_id(*self).name)
     }
 }
 
@@ -84,6 +92,7 @@ pub struct StrapLine {
 }
 
 impl StrapLine {
+    #[must_use]
     pub const fn new(
         id: StrapId,
         name: &'static str,
@@ -146,6 +155,7 @@ pub const ALL_STRAPS: [StrapLine; 4] = [
 ];
 
 /// Retrieve strap metadata by identifier.
+#[must_use]
 pub const fn strap_by_id(id: StrapId) -> StrapLine {
     ALL_STRAPS[id.as_index()]
 }
@@ -168,6 +178,7 @@ pub struct TimingConstraintSet {
 
 impl TimingConstraintSet {
     /// Constraints with no additional limits.
+    #[must_use]
     pub const fn unrestricted() -> Self {
         Self {
             min_hold: None,
@@ -178,6 +189,7 @@ impl TimingConstraintSet {
     }
 
     /// Create a constraint that bounds the hold duration.
+    #[must_use]
     pub const fn with_hold_range(min_hold: Option<Duration>, max_hold: Option<Duration>) -> Self {
         Self {
             min_hold,
@@ -188,6 +200,7 @@ impl TimingConstraintSet {
     }
 
     /// Validate that a hold duration sits within the configured range.
+    #[must_use]
     pub fn allows_hold(&self, hold_for: Duration) -> bool {
         if let Some(min) = self.min_hold
             && hold_for < min
@@ -203,11 +216,13 @@ impl TimingConstraintSet {
     }
 
     /// Converts the minimum hold constraint to a [`Duration`], if present.
+    #[must_use]
     pub fn min_hold_duration(&self) -> Option<Duration> {
         self.min_hold
     }
 
     /// Converts the maximum hold constraint to a [`Duration`], if present.
+    #[must_use]
     pub fn max_hold_duration(&self) -> Option<Duration> {
         self.max_hold
     }
@@ -232,6 +247,7 @@ pub struct StrapStep {
 }
 
 impl StrapStep {
+    #[must_use]
     pub const fn new(
         line: StrapId,
         action: StrapAction,
@@ -249,11 +265,13 @@ impl StrapStep {
     }
 
     /// Returns the strap metadata associated with this step.
+    #[must_use]
     pub fn strap(&self) -> StrapLine {
         strap_by_id(self.line)
     }
 
     /// Returns the hold duration as a [`Duration`].
+    #[must_use]
     pub fn hold_duration(&self) -> Duration {
         self.hold_for
     }
@@ -268,6 +286,18 @@ pub enum StrapSequenceKind {
     FaultRecovery,
 }
 
+impl fmt::Display for StrapSequenceKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let label = match self {
+            StrapSequenceKind::NormalReboot => "normal-reboot",
+            StrapSequenceKind::RecoveryEntry => "recovery-entry",
+            StrapSequenceKind::RecoveryImmediate => "recovery-immediate",
+            StrapSequenceKind::FaultRecovery => "fault-recovery",
+        };
+        f.write_str(label)
+    }
+}
+
 /// Immutable strap sequence template shared across targets.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct SequenceTemplate {
@@ -278,6 +308,7 @@ pub struct SequenceTemplate {
 }
 
 impl SequenceTemplate {
+    #[must_use]
     pub const fn new(
         kind: StrapSequenceKind,
         phases: &'static [StrapStep],
@@ -293,16 +324,19 @@ impl SequenceTemplate {
     }
 
     /// Returns the ordered strap steps that make up the sequence.
+    #[must_use]
     pub const fn steps(&self) -> &'static [StrapStep] {
         self.phases
     }
 
     /// Returns the number of steps contained in the template.
+    #[must_use]
     pub fn step_count(&self) -> usize {
         self.phases.len()
     }
 
     /// Returns the cooldown interval as a [`Duration`].
+    #[must_use]
     pub fn cooldown_duration(&self) -> Duration {
         self.cooldown
     }

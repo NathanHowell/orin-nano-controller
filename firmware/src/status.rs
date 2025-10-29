@@ -6,7 +6,7 @@
 //! power samples, and control-link state so the REPL can surface a
 //! `StatusSnapshot` without touching shared mutable state directly.
 
-use core::time::Duration;
+use core::{convert::TryFrom, time::Duration};
 
 use controller_core::repl::status::{
     DebugLinkState, StatusAccumulator, StatusInstant, StatusSnapshot,
@@ -62,10 +62,11 @@ fn decode_micros(raw: u32) -> Option<MonotonicMicros> {
 
 fn micros_from_instant(instant: FirmwareInstant) -> MonotonicMicros {
     let micros = instant.into_embassy().as_micros();
-    if micros >= u32::MAX as u64 {
+    if micros >= u64::from(u32::MAX) {
         MonotonicMicros(u32::MAX - 1)
     } else {
-        MonotonicMicros(micros as u32)
+        let micros = u32::try_from(micros).unwrap_or(u32::MAX - 1);
+        MonotonicMicros(micros)
     }
 }
 
@@ -90,7 +91,7 @@ pub fn reset_strap_states() {
 
 /// Stores the latest millivolt reading (0 marks unknown).
 pub fn record_vdd_sample(millivolts: Option<u16>) {
-    let stored = millivolts.map(u32::from).unwrap_or(UNKNOWN_VDD);
+    let stored = millivolts.map_or(UNKNOWN_VDD, u32::from);
     VDD_MV.store(stored, Ordering::Relaxed);
 }
 
@@ -98,7 +99,7 @@ pub fn record_vdd_sample(millivolts: Option<u16>) {
 pub fn vdd_sample() -> Option<u16> {
     match VDD_MV.load(Ordering::Relaxed) {
         UNKNOWN_VDD => None,
-        value => Some(value as u16),
+        value => u16::try_from(value).ok(),
     }
 }
 

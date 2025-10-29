@@ -6,7 +6,7 @@
 
 #![allow(dead_code)]
 
-use core::time::Duration;
+use core::{convert::TryFrom, time::Duration};
 
 use crate::straps::{
     EventId, FirmwareInstant, SequenceOutcome, StrapAction, StrapId, StrapSequenceKind,
@@ -212,11 +212,10 @@ fn emit_strap_log(
 ) {
     if let Some(delta) = delta_us {
         println!(
-            "telemetry:straps {} {} t={}us Δ={}us",
-            line, action, timestamp_us, delta
+            "telemetry:straps {line} {action} t={timestamp_us}us Δ={delta}us"
         );
     } else {
-        println!("telemetry:straps {} {} t={}us", line, action, timestamp_us);
+        println!("telemetry:straps {line} {action} t={timestamp_us}us");
     }
 }
 
@@ -333,13 +332,11 @@ fn emit_command_log(
 ) {
     if let Some(wait) = wait_us {
         println!(
-            "telemetry:command {} kind={} depth={} t={}us wait={}us",
-            stage, kind, queue_depth, timestamp_us, wait
+            "telemetry:command {stage} kind={kind} depth={queue_depth} t={timestamp_us}us wait={wait}us"
         );
     } else {
         println!(
-            "telemetry:command {} kind={} depth={} t={}us",
-            stage, kind, queue_depth, timestamp_us
+            "telemetry:command {stage} kind={kind} depth={queue_depth} t={timestamp_us}us"
         );
     }
 }
@@ -382,19 +379,18 @@ fn emit_sequence_log(
 ) {
     if let Some(duration) = duration_us {
         println!(
-            "telemetry:sequence complete kind={} outcome={} t={}us duration={}us events={}",
-            kind, outcome, timestamp_us, duration, events_recorded
+            "telemetry:sequence complete kind={kind} outcome={outcome} t={timestamp_us}us duration={duration}us events={events_recorded}"
         );
     } else {
         println!(
-            "telemetry:sequence complete kind={} outcome={} t={}us events={}",
-            kind, outcome, timestamp_us, events_recorded
+            "telemetry:sequence complete kind={kind} outcome={outcome} t={timestamp_us}us events={events_recorded}"
         );
     }
 }
 
 fn duration_to_micros(duration: Duration) -> u64 {
-    duration.as_micros().min(u128::from(u64::MAX)) as u64
+    let clamped = duration.as_micros().min(u128::from(u64::MAX));
+    u64::try_from(clamped).unwrap_or(u64::MAX)
 }
 
 #[cfg(all(test, not(target_os = "none")))]

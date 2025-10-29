@@ -204,11 +204,13 @@ const COMMANDS: [CommandSpec; 5] = [
 ];
 
 /// Returns the full command catalog.
+#[must_use]
 pub const fn commands() -> &'static [CommandSpec] {
     &COMMANDS
 }
 
 /// Looks up a command by its tag.
+#[must_use]
 pub fn command(tag: CommandTag) -> &'static CommandSpec {
     match tag {
         CommandTag::Reboot => &COMMANDS[0],
@@ -220,6 +222,7 @@ pub fn command(tag: CommandTag) -> &'static CommandSpec {
 }
 
 /// Finds a command by name (case insensitive).
+#[must_use]
 pub fn find(name: &str) -> Option<&'static CommandSpec> {
     COMMANDS
         .iter()

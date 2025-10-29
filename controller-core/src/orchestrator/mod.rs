@@ -6,7 +6,7 @@
 //! queue/sequence types that satisfy these traits while reusing the shared
 //! business logic housed in `controller-core`.
 
-use core::{fmt, marker::PhantomData, num::NonZeroU16, ops::Add, time::Duration};
+use core::{convert::TryFrom, fmt, marker::PhantomData, num::NonZeroU16, ops::Add, time::Duration};
 
 use heapless::Vec;
 
@@ -47,6 +47,7 @@ pub struct SequenceCommand<TInstant = u64> {
 
 impl<TInstant> SequenceCommand<TInstant> {
     /// Constructs a new command with default flags.
+    #[must_use]
     pub fn new(kind: StrapSequenceKind, requested_at: TInstant, source: CommandSource) -> Self {
         Self {
             kind,
@@ -57,6 +58,7 @@ impl<TInstant> SequenceCommand<TInstant> {
     }
 
     /// Constructs a new command with explicit flags.
+    #[must_use]
     pub fn with_flags(
         kind: StrapSequenceKind,
         requested_at: TInstant,
@@ -118,6 +120,7 @@ pub enum SequenceState {
 
 impl SequenceState {
     /// Returns `true` when the sequence can still transition to another state.
+    #[must_use]
     pub const fn is_active(self) -> bool {
         matches!(
             self,
@@ -126,6 +129,7 @@ impl SequenceState {
     }
 
     /// Returns `true` when the state represents a terminal outcome.
+    #[must_use]
     pub const fn is_terminal(self) -> bool {
         matches!(self, SequenceState::Complete(_) | SequenceState::Error(_))
     }
@@ -162,6 +166,7 @@ impl<TInstant, const EVENT_CAPACITY: usize> SequenceRun<TInstant, EVENT_CAPACITY
     }
 
     /// Creates a new [`SequenceRun`] in the arming state.
+    #[must_use]
     pub fn new(command: SequenceCommand<TInstant>) -> Self {
         Self {
             command,
@@ -225,6 +230,7 @@ pub struct NoopStrapDriver;
 
 impl NoopStrapDriver {
     /// Creates a new no-op strap driver.
+    #[must_use]
     pub const fn new() -> Self {
         Self
     }
@@ -250,6 +256,7 @@ pub struct PowerSample<TInstant> {
 
 impl<TInstant> PowerSample<TInstant> {
     /// Creates a new [`PowerSample`] with the provided timestamp and reading.
+    #[must_use]
     pub const fn new(timestamp: TInstant, millivolts: Option<u16>) -> Self {
         Self {
             timestamp,
@@ -301,6 +308,7 @@ pub struct VrefintSample<TInstant> {
 
 impl<TInstant> VrefintSample<TInstant> {
     /// Creates a new [`VrefintSample`] with the provided timestamp and ADC reading.
+    #[must_use]
     pub const fn new(timestamp: TInstant, reading: u16) -> Self {
         Self { timestamp, reading }
     }
@@ -339,6 +347,7 @@ pub struct VrefintConfig {
 
 impl VrefintConfig {
     /// Builds a new configuration for the VREFINT power monitor.
+    #[must_use]
     pub fn new(
         reference_mv: NonZeroU16,
         brownout_entry_mv: u16,
@@ -394,11 +403,13 @@ where
     P: VrefintSampleProvider,
 {
     /// Builds a monitor that uses the default configuration parameters.
+    #[must_use]
     pub fn new(calibration_raw: u16, provider: P) -> Self {
         Self::with_config(calibration_raw, VrefintConfig::default(), provider)
     }
 
     /// Builds a monitor with custom configuration parameters.
+    #[must_use]
     pub fn with_config(calibration_raw: u16, config: VrefintConfig, provider: P) -> Self {
         let calibration = NonZeroU16::new(calibration_raw).filter(|value| value.get() != u16::MAX);
         Self {
@@ -418,14 +429,7 @@ where
                     VrefintState::BrownOut
                 }
             }
-            VrefintState::Stable => {
-                if millivolts <= self.config.brownout_entry_mv {
-                    VrefintState::BrownOut
-                } else {
-                    VrefintState::Stable
-                }
-            }
-            VrefintState::Unknown => {
+            VrefintState::Stable | VrefintState::Unknown => {
                 if millivolts <= self.config.brownout_entry_mv {
                     VrefintState::BrownOut
                 } else {
@@ -443,7 +447,7 @@ where
 
         let numerator = u32::from(calibration.get()) * u32::from(self.config.reference_mv.get());
         let value = (numerator + (reading / 2)) / reading;
-        value.min(u32::from(u16::MAX)) as u16
+        u16::try_from(value.min(u32::from(u16::MAX))).unwrap_or(u16::MAX)
     }
 
     fn handle_invalid_sample(&mut self) -> PowerStatus<P::Instant> {
@@ -501,6 +505,7 @@ pub struct NoopPowerMonitor<TInstant = ()> {
 
 impl<TInstant> NoopPowerMonitor<TInstant> {
     /// Creates a new no-op monitor.
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             _marker: PhantomData,
@@ -529,6 +534,7 @@ pub enum OrchestratorState {
 
 impl OrchestratorState {
     /// Returns `true` when the orchestrator has reached a terminal state.
+    #[must_use]
     pub const fn is_terminal(self) -> bool {
         matches!(self, Self::Completed | Self::Error)
     }
@@ -562,16 +568,19 @@ impl<TInstant: Copy> CommandRejection<TInstant> {
     }
 
     /// Builds a BUSY rejection.
+    #[must_use]
     pub fn busy(command: SequenceCommand<TInstant>) -> Self {
         Self::new(command, CommandRejectionReason::Busy)
     }
 
     /// Builds a rejection caused by a missing template.
+    #[must_use]
     pub fn missing_template(command: SequenceCommand<TInstant>) -> Self {
         Self::new(command, CommandRejectionReason::MissingTemplate)
     }
 
     /// Builds a rejection caused by a missing control link.
+    #[must_use]
     pub fn control_link_lost(command: SequenceCommand<TInstant>) -> Self {
         Self::new(command, CommandRejectionReason::ControlLinkLost)
     }
@@ -601,6 +610,7 @@ pub struct TransitionError {
 
 impl TransitionError {
     /// Creates a new transition error describing the attempted states.
+    #[must_use]
     pub const fn new(from: SequenceState, to: SequenceState) -> Self {
         Self { from, to }
     }
@@ -675,6 +685,10 @@ pub trait CommandQueueProducer {
     type Error;
 
     /// Attempts to enqueue a command without blocking.
+    ///
+    /// # Errors
+    /// Returns a [`CommandEnqueueError`] when the transport cannot accept the
+    /// command (for example, because the queue is full or disconnected).
     fn try_enqueue(
         &mut self,
         command: SequenceCommand<Self::Instant>,
@@ -722,6 +736,10 @@ pub trait CommandQueueConsumer {
     /// Returns `Ok(Some(command))` when a command was available, `Ok(None)` when
     /// the queue is currently empty, or an error when the underlying transport
     /// has been disconnected or failed.
+    ///
+    /// # Errors
+    /// Returns a [`CommandDequeueError`] when the transport disconnects or
+    /// reports a dequeue failure.
     fn try_dequeue(
         &mut self,
     ) -> Result<Option<SequenceCommand<Self::Instant>>, CommandDequeueError<Self::Error>>;
@@ -775,6 +793,10 @@ pub trait SequenceRunView {
 /// Mutable control surface for a [`SequenceRunView`].
 pub trait SequenceRunControl: SequenceRunView {
     /// Updates the state machine, validating the requested transition.
+    ///
+    /// # Errors
+    /// Returns a [`TransitionError`] when the transition is not permitted for
+    /// the current state.
     fn set_state(&mut self, next: SequenceState) -> Result<(), TransitionError>;
 
     /// Updates the sequence start timestamp.
@@ -919,16 +941,19 @@ pub struct BridgeHoldConfig {
 
 impl BridgeHoldConfig {
     /// Creates a configuration with the provided timeout.
+    #[must_use]
     pub const fn new(timeout: Duration) -> Self {
         Self { timeout }
     }
 
     /// Returns the configured timeout duration.
+    #[must_use]
     pub const fn timeout(&self) -> Duration {
         self.timeout
     }
 
     /// Returns `true` when the timeout is non-zero.
+    #[must_use]
     pub const fn has_timeout(&self) -> bool {
         !self.timeout.is_zero()
     }
@@ -979,13 +1004,13 @@ where
 {
     run.set_waiting_on_bridge(true);
 
-    if !config.has_timeout() {
-        run.set_step_deadline(None);
-        None
-    } else {
+    if config.has_timeout() {
         let deadline = now + config.timeout();
         run.set_step_deadline(Some(deadline));
         Some(deadline)
+    } else {
+        run.set_step_deadline(None);
+        None
     }
 }
 
@@ -1034,6 +1059,7 @@ pub struct TemplateRegistry<const CAPACITY: usize = MAX_SEQUENCE_TEMPLATES> {
 
 impl<const CAPACITY: usize> TemplateRegistry<CAPACITY> {
     /// Creates an empty registry.
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             templates: Vec::new(),
@@ -1041,6 +1067,10 @@ impl<const CAPACITY: usize> TemplateRegistry<CAPACITY> {
     }
 
     /// Registers (or replaces) a template in the registry.
+    ///
+    /// # Errors
+    /// Returns [`TemplateRegistryError::RegistryFull`] when the registry cannot
+    /// accept additional templates.
     pub fn register(&mut self, template: SequenceTemplate) -> Result<(), TemplateRegistryError> {
         if let Some(existing) = self
             .templates
@@ -1057,27 +1087,40 @@ impl<const CAPACITY: usize> TemplateRegistry<CAPACITY> {
     }
 
     /// Looks up a template by kind.
+    #[must_use]
     pub fn get(&self, kind: StrapSequenceKind) -> Option<&SequenceTemplate> {
         self.templates.iter().find(|template| template.kind == kind)
     }
 
     /// Returns `true` when the registry already contains a template for `kind`.
+    #[must_use]
     pub fn contains(&self, kind: StrapSequenceKind) -> bool {
         self.get(kind).is_some()
     }
 
     /// Returns the number of registered templates.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.templates.len()
     }
 
     /// Returns `true` when no templates are stored.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.templates.is_empty()
     }
 
     /// Provides an iterator over registered templates.
     pub fn iter(&self) -> core::slice::Iter<'_, SequenceTemplate> {
+        self.templates.iter()
+    }
+}
+
+impl<'a, const CAPACITY: usize> IntoIterator for &'a TemplateRegistry<CAPACITY> {
+    type Item = &'a SequenceTemplate;
+    type IntoIter = core::slice::Iter<'a, SequenceTemplate>;
+
+    fn into_iter(self) -> Self::IntoIter {
         self.templates.iter()
     }
 }
@@ -1089,6 +1132,10 @@ impl<const CAPACITY: usize> Default for TemplateRegistry<CAPACITY> {
 }
 
 /// Registers all default strap templates with the provided registry.
+///
+/// # Errors
+/// Returns [`TemplateRegistryError::RegistryFull`] if the registry cannot hold
+/// every default template.
 pub fn register_default_templates<const CAPACITY: usize>(
     registry: &mut TemplateRegistry<CAPACITY>,
 ) -> Result<(), TemplateRegistryError> {
@@ -1125,6 +1172,7 @@ where
     Instant: Copy + Ord,
 {
     /// Creates a tracker with no cooldowns enforced.
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             next_allowed: [None; SEQUENCE_KIND_COUNT],
@@ -1258,6 +1306,11 @@ where
     P::Instant: Copy + Ord + Add<Duration, Output = P::Instant>,
 {
     /// Creates a scheduler that owns the provided queue producer.
+    ///
+    /// # Panics
+    /// Panics if registering the default templates exceeds the registry
+    /// capacity; this indicates `CAPACITY` was configured too small.
+    #[must_use]
     pub fn new(producer: P) -> Self {
         let mut scheduler = Self {
             producer,
@@ -1297,6 +1350,10 @@ where
     }
 
     /// Attempts to enqueue a sequence command.
+    ///
+    /// # Errors
+    /// Returns a [`ScheduleError`] when the queue rejects the command, no
+    /// template is registered, or a cooldown prevents scheduling.
     pub fn enqueue(
         &mut self,
         kind: StrapSequenceKind,
@@ -1307,6 +1364,10 @@ where
     }
 
     /// Attempts to enqueue a sequence command with explicit flags.
+    ///
+    /// # Errors
+    /// Returns a [`ScheduleError`] when the queue rejects the command, no
+    /// template is registered, or a cooldown prevents scheduling.
     pub fn enqueue_with_flags(
         &mut self,
         kind: StrapSequenceKind,
@@ -1340,6 +1401,9 @@ where
     }
 
     /// Updates cooldown tracking after a sequence completes.
+    ///
+    /// # Errors
+    /// Returns a [`ScheduleError`] when no template is registered for `kind`.
     pub fn notify_completed(
         &mut self,
         kind: StrapSequenceKind,
@@ -1366,8 +1430,8 @@ where
 mod tests {
     use super::*;
     use crate::sequences::{StrapAction, StrapId, TimingConstraintSet};
+    use core::{convert::TryFrom, ops::Add, time::Duration};
     use heapless::Vec as HeaplessVec;
-
     #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
     struct MockInstant(u64);
 
@@ -1385,7 +1449,9 @@ mod tests {
         type Output = Self;
 
         fn add(self, rhs: Duration) -> Self::Output {
-            Self(self.0 + rhs.as_micros() as u64)
+            let micros = u64::try_from(rhs.as_micros())
+                .expect("test durations should fit within u64 micros");
+            Self(self.0 + micros)
         }
     }
 
@@ -1472,7 +1538,7 @@ mod tests {
     fn reading_for_mv(calibration: u16, reference_mv: u16, target_mv: u32) -> u16 {
         let numerator = u32::from(calibration) * u32::from(reference_mv);
         let reading = numerator / target_mv;
-        reading.max(1).min(u32::from(u16::MAX)) as u16
+        u16::try_from(reading.max(1).min(u32::from(u16::MAX))).unwrap_or(u16::MAX)
     }
 
     fn new_sequence_run() -> SequenceRun<MockInstant, 8> {

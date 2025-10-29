@@ -63,6 +63,23 @@ pub enum TokenKind {
     Error,
 }
 
+impl fmt::Display for TokenKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let label = match self {
+            TokenKind::Duration => "duration literal",
+            TokenKind::Integer => "integer literal",
+            TokenKind::Ident => "identifier",
+            TokenKind::Flag => "flag",
+            TokenKind::Equals => "equals sign",
+            TokenKind::Comma => "comma",
+            TokenKind::Whitespace => "whitespace",
+            TokenKind::Eol => "end-of-line marker",
+            TokenKind::Error => "unsupported token",
+        };
+        f.write_str(label)
+    }
+}
+
 /// Token emitted by the lexer with a byte span back into the source line.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Token<'a> {
@@ -124,18 +141,29 @@ impl fmt::Display for GrammarErrorKind {
                 expected,
                 found,
                 span,
-            } => write!(f, "expected {expected}, found {found:?} at {span:?}"),
+            } => match found {
+                Some(kind) => write!(
+                    f,
+                    "expected {expected}, found {kind} at {}",
+                    SpanDisplay(span)
+                ),
+                None => write!(
+                    f,
+                    "expected {expected}, found end of input at {}",
+                    SpanDisplay(span)
+                ),
+            },
             GrammarErrorKind::UnexpectedEnd { expected } => {
                 write!(f, "unexpected end of input, expected {expected}")
             }
             GrammarErrorKind::InvalidInteger { span } => {
-                write!(f, "invalid integer literal at {span:?}")
+                write!(f, "invalid integer literal at {}", SpanDisplay(span))
             }
             GrammarErrorKind::InvalidDuration { span } => {
-                write!(f, "invalid duration literal at {span:?}")
+                write!(f, "invalid duration literal at {}", SpanDisplay(span))
             }
             GrammarErrorKind::InvalidToken { span, lexeme } => {
-                write!(f, "unsupported token `{lexeme}` at {span:?}")
+                write!(f, "unsupported token `{lexeme}` at {}", SpanDisplay(span))
             }
         }
     }
@@ -145,6 +173,14 @@ impl fmt::Display for GrammarErrorKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GrammarError {
     pub kind: GrammarErrorKind,
+}
+
+struct SpanDisplay<'a>(&'a Range<usize>);
+
+impl fmt::Display for SpanDisplay<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}..{}", self.0.start, self.0.end)
+    }
 }
 
 impl fmt::Display for GrammarError {
@@ -251,13 +287,13 @@ pub enum Command<'a> {
     Help(HelpCommand<'a>),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RebootCommand {
     Now,
     Delay(Duration),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecoveryCommand {
     Enter,
     Exit,
@@ -283,18 +319,22 @@ where
     let mut input = tokens;
     match command().parse_next(&mut input) {
         Ok(cmd) => Ok((cmd, input)),
-        Err(ErrMode::Backtrack(err)) | Err(ErrMode::Cut(err)) => Err(err),
+        Err(ErrMode::Backtrack(err) | ErrMode::Cut(err)) => Err(err),
         Err(ErrMode::Incomplete(_)) => Err(GrammarError::unexpected("token", input.first())),
     }
 }
 
 /// Tokenize the provided line.
+///
+/// # Errors
+/// Returns a [`LexError`] when the line produces more tokens than the buffer
+/// can hold or when incremental compilation fails.
 pub fn lex(line: &str) -> Result<TokenBuffer<'_>, LexError> {
     let compiled = TokenKind::lexer();
     let mut cache: TokenCache<TokenKind, MAX_CACHE_RECORDS> = TokenCache::new();
     let partial = cache
         .rebuild(compiled, line)
-        .map_err(map_incremental_error)?;
+        .map_err(|error| map_incremental_error(&error))?;
     let mut buffer = TokenBuffer::new();
 
     for record in cache.tokens() {
@@ -339,7 +379,7 @@ pub fn lex(line: &str) -> Result<TokenBuffer<'_>, LexError> {
     Ok(buffer)
 }
 
-fn map_incremental_error(error: IncrementalError) -> LexError {
+fn map_incremental_error(error: &IncrementalError) -> LexError {
     match error {
         IncrementalError::TokenOverflow => LexError::TooManyTokens {
             processed: MAX_TOKENS,
@@ -349,10 +389,14 @@ fn map_incremental_error(error: IncrementalError) -> LexError {
 }
 
 /// Parse a REPL command from the provided line.
+///
+/// # Errors
+/// Returns a [`ParseError`] when the line is empty, fails lexical analysis, or
+/// does not match the grammar.
 pub fn parse(line: &str) -> Result<Command<'_>, ParseError> {
     let tokens = lex(line).map_err(ParseError::Lex)?;
 
-    for token in tokens.iter() {
+    for token in &tokens {
         if token.kind == TokenKind::Error {
             return Err(ParseError::Grammar(GrammarError::invalid_token(token)));
         }
@@ -383,19 +427,16 @@ where
         let snapshot = *input;
         let command_token = expect_kind(TokenKind::Ident, "command keyword").parse_next(input)?;
 
-        match catalog::find(command_token.lexeme) {
-            Some(spec) => {
-                let mut state = CommandState::new(spec.tag);
-                parse_node(spec.grammar, input, &mut state)?;
-                state.finish()
-            }
-            None => {
-                *input = snapshot;
-                Err(ErrMode::Backtrack(GrammarError::unexpected(
-                    "command keyword",
-                    Some(&command_token),
-                )))
-            }
+        if let Some(spec) = catalog::find(command_token.lexeme) {
+            let mut state = CommandState::new(spec.tag);
+            parse_node(spec.grammar, input, &mut state)?;
+            state.finish()
+        } else {
+            *input = snapshot;
+            Err(ErrMode::Backtrack(GrammarError::unexpected(
+                "command keyword",
+                Some(&command_token),
+            )))
         }
     }
 }
@@ -499,8 +540,7 @@ where
                 Err(ErrMode::Backtrack(GrammarError::unexpected(
                     branches
                         .first()
-                        .map(|branch| branch.name)
-                        .unwrap_or("subcommand"),
+                        .map_or("subcommand", |branch| branch.name),
                     Some(token),
                 )))
             }
@@ -509,23 +549,20 @@ where
             Err(ErrMode::Backtrack(GrammarError::unexpected(
                 branches
                     .first()
-                    .map(|branch| branch.name)
-                    .unwrap_or("subcommand"),
+                    .map_or("subcommand", |branch| branch.name),
                 Some(token),
             )))
         }
         Some((token, _)) => Err(ErrMode::Backtrack(GrammarError::unexpected(
             branches
                 .first()
-                .map(|branch| branch.name)
-                .unwrap_or("subcommand"),
+                .map_or("subcommand", |branch| branch.name),
             Some(token),
         ))),
         None => Err(ErrMode::Backtrack(GrammarError::unexpected(
             branches
                 .first()
-                .map(|branch| branch.name)
-                .unwrap_or("subcommand"),
+                .map_or("subcommand", |branch| branch.name),
             None,
         ))),
     }
@@ -588,8 +625,7 @@ fn find_choice(choices: &'static [ChoiceBranch], lexeme: &str) -> Option<&'stati
 fn choice_expected_label(choices: &'static [ChoiceBranch]) -> &'static str {
     choices
         .first()
-        .map(|choice| choice.keyword)
-        .unwrap_or("keyword")
+        .map_or("keyword", |choice| choice.keyword)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -848,7 +884,7 @@ mod tests {
     fn rejects_invalid_token() {
         match parse("reboot now$") {
             Err(ParseError::Grammar(err)) => {
-                assert!(matches!(err.kind, GrammarErrorKind::InvalidToken { .. }))
+                assert!(matches!(err.kind, GrammarErrorKind::InvalidToken { .. }));
             }
             other => panic!("unexpected result: {other:?}"),
         }

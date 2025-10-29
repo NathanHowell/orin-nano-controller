@@ -9,7 +9,7 @@
 
 #![cfg_attr(not(test), allow(dead_code))]
 
-use core::time::Duration;
+use core::{convert::TryFrom, fmt, time::Duration};
 
 use heapless::{HistoryBuffer, OldestOrdered, Vec};
 
@@ -33,6 +33,7 @@ pub struct DiagnosticsFrame {
 
 impl DiagnosticsFrame {
     /// Creates a new diagnostics frame with the provided capacity.
+    #[must_use]
     pub fn new(
         event: TelemetryEventKind,
         timestamp_us: TimestampMicros,
@@ -61,6 +62,24 @@ pub enum TelemetryEventKind {
     Custom(u16),
 }
 
+impl fmt::Display for TelemetryEventKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TelemetryEventKind::StrapAsserted(line) => write!(f, "strap-asserted {line}"),
+            TelemetryEventKind::StrapReleased(line) => write!(f, "strap-released {line}"),
+            TelemetryEventKind::PowerStable => f.write_str("power-stable"),
+            TelemetryEventKind::RecoveryConsoleActivity => f.write_str("recovery-console-activity"),
+            TelemetryEventKind::CommandPending(kind) => write!(f, "command-pending {kind}"),
+            TelemetryEventKind::CommandStarted(kind) => write!(f, "command-started {kind}"),
+            TelemetryEventKind::SequenceComplete(kind) => {
+                write!(f, "sequence-complete {kind}")
+            }
+            TelemetryEventKind::UsbDisconnect => f.write_str("usb-disconnect"),
+            TelemetryEventKind::Custom(code) => write!(f, "custom({code})"),
+        }
+    }
+}
+
 impl TelemetryEventKind {
     const STRAP_ASSERT_BASE: u16 = 0x0000;
     const STRAP_RELEASE_BASE: u16 = 0x0004;
@@ -72,6 +91,7 @@ impl TelemetryEventKind {
     const SEQUENCE_COMPLETE_BASE: u16 = 0x0018;
 
     /// Encodes the event into a compact transport-friendly discriminant.
+    #[must_use]
     pub const fn to_raw(self) -> u16 {
         match self {
             TelemetryEventKind::StrapAsserted(line) => Self::STRAP_ASSERT_BASE + strap_index(line),
@@ -93,6 +113,7 @@ impl TelemetryEventKind {
     }
 
     /// Decodes a raw discriminant into a telemetry event, falling back to [`Custom`].
+    #[must_use]
     pub fn from_raw(code: u16) -> Self {
         match code {
             Self::POWER_STABLE_CODE => TelemetryEventKind::PowerStable,
@@ -153,6 +174,7 @@ pub enum TelemetryPayload {
 
 impl TelemetryPayload {
     /// Convenience constructor when no payload data is needed.
+    #[must_use]
     pub const fn none() -> Self {
         TelemetryPayload::None
     }
@@ -167,6 +189,7 @@ pub struct StrapTelemetry {
 }
 
 impl StrapTelemetry {
+    #[must_use]
     pub const fn new(
         line: StrapId,
         action: StrapAction,
@@ -188,6 +211,7 @@ pub struct CommandTelemetry {
 }
 
 impl CommandTelemetry {
+    #[must_use]
     pub const fn new(queue_depth: u8, pending_for: Option<Duration>) -> Self {
         Self {
             queue_depth,
@@ -206,6 +230,7 @@ pub struct SequenceTelemetry {
 }
 
 impl SequenceTelemetry {
+    #[must_use]
     pub const fn new(
         outcome: SequenceOutcome,
         duration: Option<Duration>,
@@ -220,6 +245,7 @@ impl SequenceTelemetry {
     }
 
     /// Attaches fault recovery details to the telemetry payload.
+    #[must_use]
     pub const fn with_fault(mut self, details: FaultRecoveryTelemetry) -> Self {
         self.fault = Some(details);
         self
@@ -266,6 +292,7 @@ where
     TInstant: Copy + TelemetryInstant,
 {
     /// Creates a new telemetry recorder with an empty history.
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             ring: HistoryBuffer::new(),
@@ -409,19 +436,17 @@ where
     }
 }
 
-const fn truncate_depth(depth: usize) -> u8 {
-    if depth > u8::MAX as usize {
-        u8::MAX
-    } else {
-        depth as u8
+fn truncate_depth(depth: usize) -> u8 {
+    match u8::try_from(depth) {
+        Ok(value) => value,
+        Err(_) => u8::MAX,
     }
 }
 
-const fn truncate_count(count: usize) -> u8 {
-    if count > u8::MAX as usize {
-        u8::MAX
-    } else {
-        count as u8
+fn truncate_count(count: usize) -> u8 {
+    match u8::try_from(count) {
+        Ok(value) => value,
+        Err(_) => u8::MAX,
     }
 }
 
@@ -434,6 +459,7 @@ pub struct FaultRecoveryTelemetry {
 
 impl FaultRecoveryTelemetry {
     /// Creates a new fault recovery telemetry payload.
+    #[must_use]
     pub const fn new(reason: FaultRecoveryReason, retries: u8) -> Self {
         Self { reason, retries }
     }
@@ -461,6 +487,7 @@ impl FaultRecoveryReason {
     const CONSOLE_WATCHDOG_CODE: u8 = 0x03;
 
     /// Encodes the reason into a compact numeric discriminant.
+    #[must_use]
     pub const fn to_raw(self) -> u8 {
         match self {
             FaultRecoveryReason::ManualRequest => Self::MANUAL_REQUEST_CODE,
@@ -472,6 +499,7 @@ impl FaultRecoveryReason {
     }
 
     /// Decodes a compact numeric discriminant into a fault recovery reason.
+    #[must_use]
     pub const fn from_raw(code: u8) -> Self {
         match code {
             Self::MANUAL_REQUEST_CODE => FaultRecoveryReason::ManualRequest,
@@ -483,6 +511,7 @@ impl FaultRecoveryReason {
     }
 
     /// Returns `true` when the reason was decoded from an unknown code.
+    #[must_use]
     pub const fn is_custom(self) -> bool {
         matches!(self, FaultRecoveryReason::Custom(_))
     }

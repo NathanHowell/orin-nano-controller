@@ -246,6 +246,7 @@ impl<D> UsbComposite<D> {
     }
 
     pub fn take_port(&mut self, _kind: UsbPortKind) -> Option<CdcAcmHandle<D>> {
+        let _ = self;
         None
     }
 }
@@ -262,6 +263,7 @@ pub struct CdcAcmHandle<D> {
 #[cfg(not(target_os = "none"))]
 impl<D> CdcAcmHandle<D> {
     pub fn kind(&self) -> UsbPortKind {
+        let _ = self;
         UsbPortKind::Repl
     }
 }

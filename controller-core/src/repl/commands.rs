@@ -92,6 +92,11 @@ pub trait SequenceEnqueuer {
     type Instant: Copy + Ord + Add<Duration, Output = Self::Instant>;
     type Error;
 
+    /// Enqueues a strap sequence for execution.
+    ///
+    /// # Errors
+    /// Returns a [`ScheduleError`] when the orchestrator cannot accept the
+    /// command (for example, if cooldowns or queue limits prevent scheduling).
     fn enqueue_sequence(
         &mut self,
         kind: StrapSequenceKind,
@@ -128,6 +133,7 @@ pub struct CommandExecutor<S, P = NoStatusProvider> {
 
 impl<S> CommandExecutor<S> {
     /// Creates a new executor around the provided scheduler.
+    #[must_use]
     pub const fn new(scheduler: S) -> Self {
         Self {
             scheduler,
@@ -136,6 +142,7 @@ impl<S> CommandExecutor<S> {
     }
 
     /// Replaces the default status provider with a platform-specific implementation.
+    #[must_use]
     pub fn with_status_provider<P>(self, provider: P) -> CommandExecutor<S, P> {
         let CommandExecutor { scheduler, .. } = self;
         CommandExecutor {
@@ -174,6 +181,10 @@ where
     P: StatusProvider<S::Instant>,
 {
     /// Parses and executes a REPL command.
+    ///
+    /// # Errors
+    /// Returns a [`CommandError`] when the input fails to parse or when the
+    /// orchestrator rejects the requested sequence.
     pub fn execute(
         &mut self,
         line: &str,
@@ -309,6 +320,7 @@ mod tests {
     use crate::sequences::{
         fault_recovery_template, recovery_entry_template, recovery_immediate_template,
     };
+    use core::convert::TryFrom;
     use core::ops::Add;
     use core::time::Duration;
     use heapless::Vec as HeaplessVec;
@@ -326,7 +338,9 @@ mod tests {
         type Output = Self;
 
         fn add(self, rhs: Duration) -> Self::Output {
-            Self(self.0 + rhs.as_micros() as u64)
+            let micros = u64::try_from(rhs.as_micros())
+                .expect("test durations should fit within u64 micros");
+            Self(self.0 + micros)
         }
     }
 
