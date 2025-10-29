@@ -37,8 +37,6 @@ pub struct UsbDeviceStrings {
     pub manufacturer: &'static str,
     /// Product string descriptor.
     pub product: &'static str,
-    /// Unique serial number string descriptor (optional).
-    pub serial_number: Option<&'static str>,
     /// Label for the REPL interface.
     pub repl_interface: &'static str,
     /// Label for the UART bridge interface.
@@ -50,7 +48,6 @@ impl Default for UsbDeviceStrings {
         Self {
             manufacturer: "Orin Controller",
             product: "Jetson Strap Manager",
-            serial_number: None,
             repl_interface: "Operator REPL",
             bridge_interface: "Jetson UART Bridge",
         }
@@ -142,7 +139,7 @@ where
         let mut config = embassy_usb::Config::new(0x1209, 0x0001);
         config.manufacturer = Some(strings.manufacturer);
         config.product = Some(strings.product);
-        config.serial_number = strings.serial_number;
+        config.serial_number = Some(embassy_stm32::uid::uid_hex());
         config.max_packet_size_0 = MAX_PACKET_SIZE as u8;
         config.max_power = 250;
         config.supports_remote_wakeup = true;
