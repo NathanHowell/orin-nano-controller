@@ -14,6 +14,9 @@ use controller_core::repl::status::{
 use controller_core::sequences::StrapId;
 use portable_atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 
+#[cfg(target_os = "none")]
+use cortex_m::register::dhcsr;
+
 use crate::straps::FirmwareInstant;
 
 const UNKNOWN_VDD: u32 = 0;
@@ -137,12 +140,12 @@ pub fn set_control_link_attached(attached: bool) {
 }
 
 /// Builds a [`StatusSnapshot`] using the stored metrics.
-pub fn snapshot(now: FirmwareInstant, debug_link: DebugLinkState) -> StatusSnapshot {
+pub fn snapshot(now: FirmwareInstant) -> StatusSnapshot {
     StatusSnapshot {
         strap_levels: strap_samples(),
         vdd_mv: vdd_sample(),
         bridge: bridge_activity(now),
-        debug_link,
+        debug_link: detect_debug_link(),
         control_link_attached: control_link_attached(),
     }
 }
@@ -150,4 +153,23 @@ pub fn snapshot(now: FirmwareInstant, debug_link: DebugLinkState) -> StatusSnaps
 fn sample_from_mask(mask: u8, id: StrapId) -> StrapSample {
     let asserted = mask & bit_for(id) != 0;
     StrapSample::new(id, StrapLevel::from_asserted(asserted))
+}
+
+#[cfg(target_os = "none")]
+fn detect_debug_link() -> DebugLinkState {
+    if debugger_attached() {
+        DebugLinkState::Connected
+    } else {
+        DebugLinkState::Disconnected
+    }
+}
+
+#[cfg(not(target_os = "none"))]
+const fn detect_debug_link() -> DebugLinkState {
+    DebugLinkState::Unknown
+}
+
+#[cfg(target_os = "none")]
+fn debugger_attached() -> bool {
+    dhcsr::read().c_debugen()
 }

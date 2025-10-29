@@ -165,7 +165,7 @@ pub struct FirmwareStatusProvider;
 #[cfg(target_os = "none")]
 impl StatusProvider<FirmwareInstant> for FirmwareStatusProvider {
     fn snapshot(&mut self, now: FirmwareInstant) -> Option<StatusSnapshot> {
-        Some(status::snapshot(now, DebugLinkState::Unknown))
+        Some(status::snapshot(now))
     }
 }
 
