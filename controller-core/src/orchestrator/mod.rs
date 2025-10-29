@@ -93,7 +93,15 @@ pub enum SequenceError {
 
 impl fmt::Display for SequenceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
+        match self {
+            SequenceError::Busy => write!(f, "orchestrator is busy"),
+            SequenceError::BrownOutDetected => write!(f, "brown-out detected during sequence"),
+            SequenceError::BridgeTimeout => write!(f, "bridge activity timeout"),
+            SequenceError::RetryLimitExceeded => write!(f, "retry limit exceeded"),
+            SequenceError::ControlLinkLost => write!(f, "control link lost"),
+            SequenceError::UnexpectedState => write!(f, "unexpected state transition"),
+            SequenceError::TelemetryBacklog => write!(f, "telemetry backlog exceeded"),
+        }
     }
 }
 

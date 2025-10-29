@@ -7,8 +7,13 @@ members = [
 ]
 
 [profile.release]
-opt-level = "s"
+codegen-units = 1
+incremental = false
 lto = "fat"
+opt-level = "s"
+
+[workspace.lints.clippy]
+all = "deny"
 
 [workspace.dependencies]
 cortex-m = "0.7.7"

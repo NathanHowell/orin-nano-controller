@@ -14,7 +14,7 @@ use core::fmt;
 use core::ops::Range;
 use core::time::Duration;
 
-use heapless::Vec as HeaplessVec;
+use heapless::{String as HeaplessString, Vec as HeaplessVec};
 use regal::IncrementalError;
 use regal::TokenCache;
 use regal_macros::RegalLexer;
@@ -96,7 +96,7 @@ impl fmt::Display for LexError {
 
 /// Grammar errors emitted by the parser.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum GrammarErrorKind<'a> {
+pub enum GrammarErrorKind {
     UnexpectedToken {
         expected: &'static str,
         found: Option<TokenKind>,
@@ -113,11 +113,11 @@ pub enum GrammarErrorKind<'a> {
     },
     InvalidToken {
         span: Range<usize>,
-        lexeme: &'a str,
+        lexeme: HeaplessString<32>,
     },
 }
 
-impl<'a> fmt::Display for GrammarErrorKind<'a> {
+impl fmt::Display for GrammarErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             GrammarErrorKind::UnexpectedToken {
@@ -143,18 +143,18 @@ impl<'a> fmt::Display for GrammarErrorKind<'a> {
 
 /// Wrapper type enabling a consistent error surface for consumers.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GrammarError<'a> {
-    pub kind: GrammarErrorKind<'a>,
+pub struct GrammarError {
+    pub kind: GrammarErrorKind,
 }
 
-impl<'a> fmt::Display for GrammarError<'a> {
+impl fmt::Display for GrammarError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.kind.fmt(f)
     }
 }
 
-impl<'a> GrammarError<'a> {
-    fn unexpected(expected: &'static str, token: Option<&Token<'a>>) -> Self {
+impl GrammarError {
+    fn unexpected(expected: &'static str, token: Option<&Token<'_>>) -> Self {
         GrammarError {
             kind: match token {
                 Some(tok) => GrammarErrorKind::UnexpectedToken {
@@ -167,7 +167,7 @@ impl<'a> GrammarError<'a> {
         }
     }
 
-    fn invalid_integer(token: &Token<'a>) -> Self {
+    fn invalid_integer(token: &Token<'_>) -> Self {
         GrammarError {
             kind: GrammarErrorKind::InvalidInteger {
                 span: token.span.clone(),
@@ -175,7 +175,7 @@ impl<'a> GrammarError<'a> {
         }
     }
 
-    fn invalid_duration(token: &Token<'a>) -> Self {
+    fn invalid_duration(token: &Token<'_>) -> Self {
         GrammarError {
             kind: GrammarErrorKind::InvalidDuration {
                 span: token.span.clone(),
@@ -183,11 +183,18 @@ impl<'a> GrammarError<'a> {
         }
     }
 
-    fn invalid_token(token: &Token<'a>) -> Self {
+    fn invalid_token(token: &Token<'_>) -> Self {
+        let mut lexeme = HeaplessString::<32>::new();
+        for ch in token.lexeme.chars() {
+            if lexeme.push(ch).is_err() {
+                break;
+            }
+        }
+
         GrammarError {
             kind: GrammarErrorKind::InvalidToken {
                 span: token.span.clone(),
-                lexeme: token.lexeme,
+                lexeme,
             },
         }
     }
@@ -196,7 +203,7 @@ impl<'a> GrammarError<'a> {
 type Input<'src, 'slice> = &'slice [Token<'src>];
 
 #[allow(deprecated)]
-impl<'src, 'slice> ParserError<Input<'src, 'slice>> for GrammarError<'src>
+impl<'src, 'slice> ParserError<Input<'src, 'slice>> for GrammarError
 where
     'src: 'slice,
 {
@@ -220,12 +227,12 @@ where
 
 /// Combined lex/parse error.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ParseError<'a> {
+pub enum ParseError {
     Lex(LexError),
-    Grammar(GrammarError<'a>),
+    Grammar(GrammarError),
 }
 
-impl<'a> fmt::Display for ParseError<'a> {
+impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ParseError::Lex(err) => err.fmt(f),
@@ -269,7 +276,7 @@ pub struct HelpCommand<'a> {
 
 pub(crate) fn parse_tokens_partial<'src, 'slice>(
     tokens: &'slice [Token<'src>],
-) -> Result<(Command<'src>, &'slice [Token<'src>]), GrammarError<'src>>
+) -> Result<(Command<'src>, &'slice [Token<'src>]), GrammarError>
 where
     'src: 'slice,
 {
@@ -342,7 +349,7 @@ fn map_incremental_error(error: IncrementalError) -> LexError {
 }
 
 /// Parse a REPL command from the provided line.
-pub fn parse(line: &str) -> Result<Command<'_>, ParseError<'_>> {
+pub fn parse(line: &str) -> Result<Command<'_>, ParseError> {
     let tokens = lex(line).map_err(ParseError::Lex)?;
 
     for token in tokens.iter() {
@@ -368,7 +375,7 @@ pub fn parse(line: &str) -> Result<Command<'_>, ParseError<'_>> {
     Ok(command)
 }
 
-fn command<'src, 'slice>() -> impl Parser<Input<'src, 'slice>, Command<'src>, GrammarError<'src>>
+fn command<'src, 'slice>() -> impl Parser<Input<'src, 'slice>, Command<'src>, GrammarError>
 where
     'src: 'slice,
 {
@@ -397,7 +404,7 @@ fn parse_node<'src, 'slice>(
     node: &'static Node,
     input: &mut Input<'src, 'slice>,
     state: &mut CommandState<'src>,
-) -> Result<(), ErrMode<GrammarError<'src>>>
+) -> Result<(), ErrMode<GrammarError>>
 where
     'src: 'slice,
 {
@@ -419,7 +426,7 @@ fn parse_optional_choice<'src, 'slice>(
     choices: &'static [ChoiceBranch],
     default: Option<DefaultChoice>,
     state: &mut CommandState<'src>,
-) -> Result<(), ErrMode<GrammarError<'src>>>
+) -> Result<(), ErrMode<GrammarError>>
 where
     'src: 'slice,
 {
@@ -462,7 +469,7 @@ fn parse_choice_branch<'src, 'slice>(
     input: &mut Input<'src, 'slice>,
     branch: &'static ChoiceBranch,
     state: &mut CommandState<'src>,
-) -> Result<(), ErrMode<GrammarError<'src>>>
+) -> Result<(), ErrMode<GrammarError>>
 where
     'src: 'slice,
 {
@@ -475,7 +482,7 @@ fn parse_subcommands<'src, 'slice>(
     input: &mut Input<'src, 'slice>,
     branches: &'static [SubcommandBranch],
     state: &mut CommandState<'src>,
-) -> Result<(), ErrMode<GrammarError<'src>>>
+) -> Result<(), ErrMode<GrammarError>>
 where
     'src: 'slice,
 {
@@ -528,7 +535,7 @@ fn parse_topic<'src, 'slice>(
     _topics: HelpTopics,
     input: &mut Input<'src, 'slice>,
     state: &mut CommandState<'src>,
-) -> Result<(), ErrMode<GrammarError<'src>>>
+) -> Result<(), ErrMode<GrammarError>>
 where
     'src: 'slice,
 {
@@ -552,7 +559,7 @@ where
 fn parse_value<'src, 'slice>(
     input: &mut Input<'src, 'slice>,
     spec: ValueSpec,
-) -> Result<ChoiceValue, ErrMode<GrammarError<'src>>>
+) -> Result<ChoiceValue, ErrMode<GrammarError>>
 where
     'src: 'slice,
 {
@@ -627,7 +634,7 @@ impl<'a> CommandState<'a> {
         &mut self,
         tag: ChoiceTag,
         value: ChoiceValue,
-    ) -> Result<(), ErrMode<GrammarError<'a>>> {
+    ) -> Result<(), ErrMode<GrammarError>> {
         match (self, tag, value) {
             (CommandState::Reboot { action }, ChoiceTag::RebootNow, _) => {
                 *action = Some(RebootCommand::Now);
@@ -668,7 +675,7 @@ impl<'a> CommandState<'a> {
         }
     }
 
-    fn apply_default_choice(&mut self, tag: ChoiceTag) -> Result<(), ErrMode<GrammarError<'a>>> {
+    fn apply_default_choice(&mut self, tag: ChoiceTag) -> Result<(), ErrMode<GrammarError>> {
         self.apply_choice(tag, ChoiceValue::None)
     }
 
@@ -686,7 +693,7 @@ impl<'a> CommandState<'a> {
         }
     }
 
-    fn finish(self) -> Result<Command<'a>, ErrMode<GrammarError<'a>>> {
+    fn finish(self) -> Result<Command<'a>, ErrMode<GrammarError>> {
         match self {
             CommandState::Reboot {
                 action: Some(command),
@@ -719,7 +726,7 @@ impl<'a> CommandState<'a> {
 fn expect_kind<'src, 'slice>(
     kind: TokenKind,
     label: &'static str,
-) -> impl Parser<Input<'src, 'slice>, Token<'src>, GrammarError<'src>>
+) -> impl Parser<Input<'src, 'slice>, Token<'src>, GrammarError>
 where
     'src: 'slice,
 {
@@ -736,14 +743,14 @@ where
     }
 }
 
-fn parse_integer<'a>(token: &Token<'a>) -> Result<u8, GrammarError<'a>> {
+fn parse_integer(token: &Token<'_>) -> Result<u8, GrammarError> {
     token
         .lexeme
         .parse::<u8>()
         .map_err(|_| GrammarError::invalid_integer(token))
 }
 
-fn parse_duration<'a>(token: &Token<'a>) -> Result<Duration, GrammarError<'a>> {
+fn parse_duration(token: &Token<'_>) -> Result<Duration, GrammarError> {
     let text = token.lexeme;
     if let Some(rest) = text.strip_suffix("ms") {
         let millis = rest

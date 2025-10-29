@@ -49,27 +49,27 @@ pub struct FaultAck<Instant> {
 
 /// Errors surfaced while executing a command.
 #[derive(Debug, PartialEq)]
-pub enum CommandError<'a, E, Instant> {
-    Parse(grammar::ParseError<'a>),
+pub enum CommandError<E, Instant> {
+    Parse(grammar::ParseError),
     Unsupported(&'static str),
     Schedule(ScheduleError<E, Instant>),
 }
 
-impl<'a, E, Instant> From<grammar::ParseError<'a>> for CommandError<'a, E, Instant> {
-    fn from(error: grammar::ParseError<'a>) -> Self {
+impl<E, Instant> From<grammar::ParseError> for CommandError<E, Instant> {
+    fn from(error: grammar::ParseError) -> Self {
         Self::Parse(error)
     }
 }
 
-impl<'a, E, Instant> From<ScheduleError<E, Instant>> for CommandError<'a, E, Instant> {
+impl<E, Instant> From<ScheduleError<E, Instant>> for CommandError<E, Instant> {
     fn from(error: ScheduleError<E, Instant>) -> Self {
         Self::Schedule(error)
     }
 }
 
-type CommandResult<'a, S> = Result<
+type CommandResult<S> = Result<
     CommandOutcome<<S as SequenceEnqueuer>::Instant>,
-    CommandError<'a, <S as SequenceEnqueuer>::Error, <S as SequenceEnqueuer>::Instant>,
+    CommandError<<S as SequenceEnqueuer>::Error, <S as SequenceEnqueuer>::Instant>,
 >;
 
 type RebootResult<S> = Result<
@@ -174,12 +174,12 @@ where
     P: StatusProvider<S::Instant>,
 {
     /// Parses and executes a REPL command.
-    pub fn execute<'a>(
+    pub fn execute(
         &mut self,
-        line: &'a str,
+        line: &str,
         now: S::Instant,
         source: CommandSource,
-    ) -> CommandResult<'a, S>
+    ) -> CommandResult<S>
     where
         S::Instant: Copy,
     {
@@ -187,12 +187,12 @@ where
         self.dispatch(command, now, source)
     }
 
-    fn dispatch<'a>(
+    fn dispatch(
         &mut self,
-        command: Command<'a>,
+        command: Command<'_>,
         now: S::Instant,
         source: CommandSource,
-    ) -> CommandResult<'a, S> {
+    ) -> CommandResult<S> {
         match command {
             Command::Reboot(action) => self
                 .handle_reboot(action, now, source)

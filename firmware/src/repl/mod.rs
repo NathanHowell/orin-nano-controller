@@ -364,7 +364,7 @@ impl<'a> ReplSession<'a> {
 
     async fn notify_execution_error(
         &mut self,
-        error: ExecutorError<'_, (), FirmwareInstant>,
+        error: ExecutorError<(), FirmwareInstant>,
         now: Instant,
     ) {
         let mut message: String<FRAME_CAPACITY> = String::new();
@@ -450,11 +450,11 @@ impl<'a> ReplSession<'a> {
         }
     }
 
-    fn execute_command<'line>(
+    fn execute_command(
         &mut self,
-        line: &'line str,
+        line: &str,
         now: Instant,
-    ) -> Result<CommandOutcome<FirmwareInstant>, ExecutorError<'line, (), FirmwareInstant>> {
+    ) -> Result<CommandOutcome<FirmwareInstant>, ExecutorError<(), FirmwareInstant>> {
         let instant = FirmwareInstant::from(now);
         self.executor.execute(line, instant, CommandSource::UsbHost)
     }
