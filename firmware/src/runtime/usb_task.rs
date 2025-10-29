@@ -18,7 +18,7 @@ pub async fn run(
     dp: Peri<'static, hal::peripherals::PA12>,
     dm: Peri<'static, hal::peripherals::PA11>,
 ) -> ! {
-    let storage = unsafe { USB_STORAGE.write(usb::UsbDeviceStorage::new()) };
+    let storage = USB_STORAGE.init(usb::UsbDeviceStorage::new());
     let driver = embassy_stm32::usb::Driver::new(usb, UsbIrqs, dp, dm);
 
     let mut composite = usb::UsbComposite::new(driver, storage, UsbDeviceStrings::default());

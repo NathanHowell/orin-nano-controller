@@ -1,6 +1,5 @@
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(target_os = "none", no_main)]
-#![cfg_attr(target_os = "none", allow(static_mut_refs))]
 
 mod bridge;
 mod hw;

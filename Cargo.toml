@@ -28,3 +28,4 @@ panic-halt = "1.0.0"
 winnow = { version = "0.6", default-features = false }
 critical-section = { version = "1.2.0", features = ["restore-state-bool"] }
 portable-atomic = { version = "1.6", default-features = false, features = ["critical-section"] }
+static_cell = "2.1.0"

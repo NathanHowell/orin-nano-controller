@@ -1,5 +1,3 @@
-use core::mem::MaybeUninit;
-
 use cortex_m::interrupt;
 use cortex_m::register::primask;
 use critical_section::{self, RawRestoreState};
@@ -17,6 +15,7 @@ use crate::telemetry::TelemetryRecorder;
 use crate::usb;
 use controller_core::orchestrator::{VrefintPowerMonitor, register_default_templates};
 use embassy_stm32::adc::Adc;
+use static_cell::StaticCell;
 
 mod bridge_task;
 mod repl_task;
@@ -46,7 +45,7 @@ unsafe impl critical_section::Impl for InterruptCriticalSection {
 pub(super) static COMMAND_QUEUE: straps::CommandQueue = Channel::new();
 pub(super) static BRIDGE_QUEUE: BridgeQueue = BridgeQueue::new();
 pub(super) static BRIDGE_ACTIVITY: BridgeActivityBus = BridgeActivityBus::new();
-pub(super) static mut USB_STORAGE: MaybeUninit<usb::UsbDeviceStorage> = MaybeUninit::uninit();
+pub(super) static USB_STORAGE: StaticCell<usb::UsbDeviceStorage> = StaticCell::new();
 
 #[embassy_executor::main]
 pub async fn main(spawner: Spawner) {

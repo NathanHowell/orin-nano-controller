@@ -11,12 +11,13 @@ use crate::bridge::{
 };
 use crate::status;
 use crate::straps::FirmwareInstant;
+use static_cell::StaticCell;
 
 const BRIDGE_UART_BUFFER_SIZE: usize = BRIDGE_FRAME_SIZE * BRIDGE_QUEUE_DEPTH;
 const JETSON_UART_BAUD: u32 = 115_200;
 
-static mut UART_TX_BUFFER: [u8; BRIDGE_UART_BUFFER_SIZE] = [0; BRIDGE_UART_BUFFER_SIZE];
-static mut UART_RX_BUFFER: [u8; BRIDGE_UART_BUFFER_SIZE] = [0; BRIDGE_UART_BUFFER_SIZE];
+static UART_TX_BUFFER: StaticCell<[u8; BRIDGE_UART_BUFFER_SIZE]> = StaticCell::new();
+static UART_RX_BUFFER: StaticCell<[u8; BRIDGE_UART_BUFFER_SIZE]> = StaticCell::new();
 
 embassy_stm32::bind_interrupts!(struct UartIrqs {
     USART3_4_5_6_LPUART1 => embassy_stm32::usart::BufferedInterruptHandler<hal::peripherals::USART5>;
@@ -36,18 +37,13 @@ pub async fn run(
     config.stop_bits = StopBits::STOP1;
     config.parity = Parity::ParityNone;
 
-    let uart = unsafe {
-        BufferedUart::new(
-            usart,
-            rx_pin,
-            tx_pin,
-            &mut UART_TX_BUFFER,
-            &mut UART_RX_BUFFER,
-            UartIrqs,
-            config,
-        )
-        .expect("failed to initialize bridge UART")
-    };
+    let tx_buffer = UART_TX_BUFFER.init([0; BRIDGE_UART_BUFFER_SIZE]);
+    let rx_buffer = UART_RX_BUFFER.init([0; BRIDGE_UART_BUFFER_SIZE]);
+
+    let uart = BufferedUart::new(
+        usart, rx_pin, tx_pin, tx_buffer, rx_buffer, UartIrqs, config,
+    )
+    .expect("failed to initialize bridge UART");
 
     let (mut uart_tx, mut uart_rx) = uart.split();
 

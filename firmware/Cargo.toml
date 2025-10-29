@@ -10,6 +10,7 @@ embassy-sync = { workspace = true }
 embassy-futures = { workspace = true }
 heapless = { workspace = true }
 portable-atomic = { workspace = true }
+static_cell = { workspace = true }
 
 [target.'cfg(target_os = "none")'.dependencies]
 defmt = { workspace = true }
