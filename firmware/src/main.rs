@@ -8,6 +8,7 @@ extern crate panic_halt;
 mod bridge;
 mod hw;
 mod repl;
+mod status;
 mod straps;
 mod telemetry;
 mod usb;

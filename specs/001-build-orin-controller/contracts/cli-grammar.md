@@ -41,5 +41,5 @@ The lexer (`regal`) produces these tokens and hands them to the `winnow` parser,
 - Successful commands echo `OK <action> <summary>` (e.g., `OK reboot duration=1.2s`).
 - Parser or execution errors return `ERR <code> <message>`; the line editor rejects invalid characters up front and signals the user with a terminal BEL instead of emitting caret markers.
 - The REPL keeps the input prompt on the terminal's bottom line; command output and telemetry messages are written immediately above it using standard VT100 cursor movements.
-- `status` emits the current strap states plus relative ages (`rx`, `tx`) for bridge traffic, followed by the latest telemetry summary.
+- `status` emits the current strap states along with the latest power rail reading, control-link state, and relative ages (`rx`, `tx`) for bridge traffic.
 - `recovery now` responds with `OK recovery waiting-for-console` immediately and emits a follow-up event once bridge activity releases the REC strap (or a timeout warning if no activity is seen).

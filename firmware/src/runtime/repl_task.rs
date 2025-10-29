@@ -1,5 +1,5 @@
 use super::COMMAND_QUEUE;
-use crate::repl::ReplSession;
+use crate::repl::{FirmwareStatusProvider, ReplSession};
 use crate::straps::CommandProducer;
 use controller_core::orchestrator::{SequenceScheduler, register_default_templates};
 use controller_core::repl::commands::CommandExecutor;
@@ -15,7 +15,7 @@ pub async fn run() -> ! {
         register_default_templates(templates).expect("scheduler template registration");
     }
 
-    let executor = CommandExecutor::new(scheduler);
+    let executor = CommandExecutor::new(scheduler).with_status_provider(FirmwareStatusProvider::default());
     let mut session = ReplSession::new(executor);
     session.run().await;
 }

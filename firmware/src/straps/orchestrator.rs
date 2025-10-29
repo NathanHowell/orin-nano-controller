@@ -10,6 +10,7 @@
 use core::convert::TryFrom;
 
 use crate::bridge::BridgeDisconnectNotice;
+use crate::status;
 use crate::telemetry::{TelemetryPayload, TelemetryRecorder};
 use controller_core::orchestrator::{
     self as core_orchestrator, NoopStrapDriver, StrapDriver, retry_budget_for,
@@ -105,8 +106,14 @@ impl<'d> StrapDriver for HardwareStrapDriver<'d> {
     fn apply(&mut self, line: StrapId, action: StrapAction) {
         let output = self.output_mut(line);
         match action {
-            StrapAction::AssertLow => output.set_low(),
-            StrapAction::ReleaseHigh => output.set_high(),
+            StrapAction::AssertLow => {
+                status::record_strap_asserted(line, true);
+                output.set_low();
+            }
+            StrapAction::ReleaseHigh => {
+                status::record_strap_asserted(line, false);
+                output.set_high();
+            }
         }
     }
 
@@ -115,6 +122,7 @@ impl<'d> StrapDriver for HardwareStrapDriver<'d> {
         self.recovery.set_high();
         self.power.set_high();
         self.apo.set_high();
+        status::reset_strap_states();
     }
 }
 
@@ -503,6 +511,8 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
         mut strap_driver: D,
     ) -> Self {
         strap_driver.release_all();
+        status::set_control_link_attached(true);
+        status::record_bridge_waiting(false);
         Self {
             command_rx,
             templates: TemplateRegistry::new(),
@@ -589,10 +599,12 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
     /// Marks the USB control link as attached, clearing any prior fault state.
     pub fn notify_control_link_attached(&mut self) {
         if self.control_link_attached {
+            status::set_control_link_attached(true);
             return;
         }
 
         self.control_link_attached = true;
+        status::set_control_link_attached(true);
         log_control_link_attached(FirmwareInstant::from(Instant::now()));
     }
 
@@ -611,6 +623,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
         }
 
         self.control_link_attached = false;
+        status::set_control_link_attached(false);
 
         let had_active_run = self.active_run.is_some();
         log_control_link_lost(had_active_run, recovery_pending, timestamp);
@@ -773,15 +786,19 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
 
         match self.power_monitor.poll() {
             PowerStatus::BrownOut(sample) => {
+                status::record_vdd_sample(sample.millivolts);
                 self.last_power_sample = Some(sample);
                 if self.handle_brown_out(sample, telemetry).await {
                     return;
                 }
             }
             PowerStatus::Stable(sample) => {
+                status::record_vdd_sample(sample.millivolts);
                 self.last_power_sample = Some(sample);
             }
-            PowerStatus::Unknown => {}
+            PowerStatus::Unknown => {
+                status::record_vdd_sample(None);
+            }
         }
 
         let now = Instant::now();
@@ -908,7 +925,10 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
         now: Instant,
     ) -> bool {
         if let Some(run) = self.active_run.as_mut() {
-            run.waiting_on_bridge = matches!(step.completion, StepCompletion::OnBridgeActivity);
+            let waiting_on_bridge =
+                matches!(step.completion, StepCompletion::OnBridgeActivity);
+            status::record_bridge_waiting(waiting_on_bridge);
+            run.waiting_on_bridge = waiting_on_bridge;
             run.step_started_at = Some(now.into());
             if run.sequence_started_at.is_none() {
                 run.sequence_started_at = Some(now.into());
@@ -1075,6 +1095,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
 
             match self.power_monitor.poll() {
                 PowerStatus::Stable(sample) => {
+                    status::record_vdd_sample(sample.millivolts);
                     self.last_power_sample = Some(sample);
                     if first_stable.is_none() {
                         first_stable = Some(sample);
@@ -1096,6 +1117,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
                     }
                 }
                 PowerStatus::BrownOut(sample) => {
+                    status::record_vdd_sample(sample.millivolts);
                     self.last_power_sample = Some(sample);
                     first_stable = None;
                 }
@@ -1103,6 +1125,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
                     let now = Instant::now();
                     let now_instant = FirmwareInstant::from(now);
                     let sample = PowerSample::new(now_instant, None);
+                     status::record_vdd_sample(sample.millivolts);
                     self.last_power_sample = Some(sample);
                     if first_stable.is_none() {
                         first_stable = Some(sample);
@@ -1133,6 +1156,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
         telemetry: &mut TelemetryRecorder,
         timestamp: FirmwareInstant,
     ) {
+        status::record_strap_asserted(line, matches!(action, StrapAction::AssertLow));
         self.strap_driver.apply(line, action);
         log_strap_drive(line, action, timestamp);
 
@@ -1147,6 +1171,7 @@ impl<'a, M: PowerMonitor, D: StrapDriver> StrapOrchestrator<'a, M, D> {
         telemetry: &mut TelemetryRecorder,
         timestamp: FirmwareInstant,
     ) {
+        status::reset_strap_states();
         for strap in super::ALL_STRAPS.iter() {
             self.drive_strap_transition(strap.id, StrapAction::ReleaseHigh, telemetry, timestamp);
         }

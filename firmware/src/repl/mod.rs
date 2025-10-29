@@ -24,11 +24,15 @@ use controller_core::repl::commands::{
     RecoveryAck,
 };
 #[cfg(target_os = "none")]
+use controller_core::repl::status::{DebugLinkState, StatusProvider, StatusSnapshot};
+#[cfg(target_os = "none")]
 use controller_core::repl::completion::{CompletionEngine, CompletionResult};
 #[cfg(target_os = "none")]
 use controller_core::sequences::StrapSequenceKind;
 #[cfg(target_os = "none")]
 use core::fmt::Write as _;
+#[cfg(target_os = "none")]
+use core::time::Duration;
 #[cfg(target_os = "none")]
 use embassy_sync::channel::{Receiver, Sender};
 #[cfg(target_os = "none")]
@@ -37,7 +41,9 @@ use embassy_time::Instant;
 use heapless::String;
 
 #[cfg(target_os = "none")]
-use crate::straps::{CommandProducer, FirmwareInstant};
+use crate::status;
+#[cfg(target_os = "none")]
+use crate::straps::{CommandProducer, FirmwareInstant, strap_by_id};
 
 /// Capacity for USB CDC frames exchanged with the REPL task.
 pub const FRAME_CAPACITY: usize = 64;
@@ -153,7 +159,19 @@ type ReplReceiver<'a> = Receiver<'a, ReplMutex, ReplFrame, FRAME_QUEUE_DEPTH>;
 type ReplSender<'a> = Sender<'a, ReplMutex, ReplFrame, FRAME_QUEUE_DEPTH>;
 
 #[cfg(target_os = "none")]
-type FirmwareExecutor<'a> = CommandExecutor<SequenceScheduler<CommandProducer<'a>>>;
+#[derive(Clone, Copy, Default)]
+pub struct FirmwareStatusProvider;
+
+#[cfg(target_os = "none")]
+impl StatusProvider<FirmwareInstant> for FirmwareStatusProvider {
+    fn snapshot(&mut self, now: FirmwareInstant) -> Option<StatusSnapshot> {
+        Some(status::snapshot(now, DebugLinkState::Unknown))
+    }
+}
+
+#[cfg(target_os = "none")]
+type FirmwareExecutor<'a> =
+    CommandExecutor<SequenceScheduler<CommandProducer<'a>>, FirmwareStatusProvider>;
 
 /// Minimal REPL session that consumes frames from the USB CDC queue and
 /// dispatches parsed commands into the strap command scheduler.
@@ -299,12 +317,18 @@ impl<'a> ReplSession<'a> {
     }
 
     async fn notify_success(&mut self, outcome: CommandOutcome<FirmwareInstant>) {
+        if let CommandOutcome::Status(snapshot) = outcome {
+            self.notify_status(snapshot).await;
+            return;
+        }
+
         let mut message: String<FRAME_CAPACITY> = String::new();
 
         match outcome {
             CommandOutcome::Reboot(ack) => format_reboot_ack(&mut message, ack),
             CommandOutcome::Recovery(ack) => format_recovery_ack(&mut message, ack),
             CommandOutcome::Fault(ack) => format_fault_ack(&mut message, ack),
+            CommandOutcome::Status(_) => unreachable!(),
         }
 
         if message.is_empty() {
@@ -312,6 +336,17 @@ impl<'a> ReplSession<'a> {
         }
 
         self.send_line(message.as_str()).await;
+    }
+
+    async fn notify_status(&mut self, snapshot: StatusSnapshot) {
+        let straps = build_strap_line(&snapshot);
+        self.send_line(straps.as_str()).await;
+
+        let power = build_power_line(&snapshot);
+        self.send_line(power.as_str()).await;
+
+        let bridge = build_bridge_line(&snapshot);
+        self.send_line(bridge.as_str()).await;
     }
 
     async fn notify_execution_error(
@@ -431,6 +466,102 @@ fn format_recovery_ack(buffer: &mut String<FRAME_CAPACITY>, ack: RecoveryAck<Fir
 fn format_fault_ack(buffer: &mut String<FRAME_CAPACITY>, ack: FaultAck<FirmwareInstant>) {
     let _ = buffer.push_str("OK fault recover");
     let _ = write!(buffer, " retries={}", ack.retry_budget);
+}
+
+#[cfg(target_os = "none")]
+fn build_strap_line(snapshot: &StatusSnapshot) -> String<FRAME_CAPACITY> {
+    let mut line: String<FRAME_CAPACITY> = String::new();
+    let _ = line.push_str("straps");
+    for sample in snapshot.strap_levels.iter() {
+        let name = strap_by_id(sample.id).name;
+        let state = if sample.level.is_asserted() {
+            "asserted"
+        } else {
+            "released"
+        };
+        let _ = write!(line, " {}={}", name, state);
+    }
+    line
+}
+
+#[cfg(target_os = "none")]
+fn build_power_line(snapshot: &StatusSnapshot) -> String<FRAME_CAPACITY> {
+    let mut line: String<FRAME_CAPACITY> = String::new();
+    let _ = line.push_str("power");
+    match snapshot.vdd_mv {
+        Some(mv) => {
+            let _ = write!(line, " vdd={}mV", mv);
+        }
+        None => {
+            let _ = line.push_str(" vdd=unknown");
+        }
+    }
+    let _ = line.push_str(" control-link=");
+    let _ = line.push_str(if snapshot.control_link_attached {
+        "attached"
+    } else {
+        "lost"
+    });
+
+    match snapshot.debug_link {
+        DebugLinkState::Unknown => {}
+        DebugLinkState::Disconnected => {
+            let _ = line.push_str(" debug=disconnected");
+        }
+        DebugLinkState::Connected => {
+            let _ = line.push_str(" debug=connected");
+        }
+    }
+
+    line
+}
+
+#[cfg(target_os = "none")]
+fn build_bridge_line(snapshot: &StatusSnapshot) -> String<FRAME_CAPACITY> {
+    let mut line: String<FRAME_CAPACITY> = String::new();
+    let _ = line.push_str("bridge");
+    let _ = line.push_str(" waiting=");
+    let _ = line.push_str(if snapshot.bridge.waiting_for_activity {
+        "true"
+    } else {
+        "false"
+    });
+    append_duration(&mut line, "rx", snapshot.bridge.jetson_to_usb_idle);
+    append_duration(&mut line, "tx", snapshot.bridge.usb_to_jetson_idle);
+    line
+}
+
+#[cfg(target_os = "none")]
+fn append_duration(
+    line: &mut String<FRAME_CAPACITY>,
+    label: &str,
+    duration: Option<Duration>,
+) {
+    let _ = line.push(' ');
+    let _ = line.push_str(label);
+    let _ = line.push('=');
+    match duration {
+        Some(value) => append_duration_value(line, value),
+        None => {
+            let _ = line.push_str("n/a");
+        }
+    }
+}
+
+#[cfg(target_os = "none")]
+fn append_duration_value(line: &mut String<FRAME_CAPACITY>, duration: Duration) {
+    if duration >= Duration::from_secs(1) {
+        let millis = duration.as_millis() as u64;
+        let seconds = millis / 1_000;
+        let tenths = (millis % 1_000) / 100;
+        let _ = write!(line, "+{seconds}.{tenths}s");
+    } else if duration >= Duration::from_millis(1) {
+        let millis = duration.as_millis() as u64;
+        let _ = write!(line, "+{millis}ms");
+    } else {
+        let micros = duration.as_micros() as u64;
+        let _ = write!(line, "+{micros}us");
+    }
 }
 
 #[cfg(target_os = "none")]

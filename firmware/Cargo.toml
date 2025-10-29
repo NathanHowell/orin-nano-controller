@@ -9,6 +9,7 @@ embassy-time = { workspace = true }
 embassy-sync = { workspace = true }
 embassy-futures = { workspace = true }
 heapless = { workspace = true }
+portable-atomic = { workspace = true }
 
 [target.'cfg(target_os = "none")'.dependencies]
 defmt = { workspace = true }

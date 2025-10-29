@@ -7,3 +7,4 @@ pub mod catalog;
 pub mod commands;
 pub mod completion;
 pub mod grammar;
+pub mod status;

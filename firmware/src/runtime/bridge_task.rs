@@ -9,6 +9,7 @@ use crate::bridge::{
     BRIDGE_FRAME_SIZE, BRIDGE_QUEUE_DEPTH, BridgeActivityBus, BridgeActivityEvent,
     BridgeActivityKind, BridgeFrame, BridgeQueue,
 };
+use crate::status;
 use crate::straps::FirmwareInstant;
 
 const BRIDGE_UART_BUFFER_SIZE: usize = BRIDGE_FRAME_SIZE * BRIDGE_QUEUE_DEPTH;
@@ -87,13 +88,14 @@ pub async fn run(
                     continue;
                 }
 
-                usb_activity
-                    .send(BridgeActivityEvent {
-                        kind: BridgeActivityKind::UsbToJetson,
-                        timestamp: FirmwareInstant::from(Instant::now()),
-                        bytes: data.len(),
-                    })
-                    .await;
+                let timestamp = FirmwareInstant::from(Instant::now());
+                let event = BridgeActivityEvent {
+                    kind: BridgeActivityKind::UsbToJetson,
+                    timestamp,
+                    bytes: data.len(),
+                };
+                status::record_bridge_tx(event.timestamp);
+                usb_activity.send(event).await;
             }
         }
     };
@@ -111,13 +113,14 @@ pub async fn run(
 
                     ttl_to_usb.send(frame).await;
 
-                    jetson_activity
-                        .send(BridgeActivityEvent {
-                            kind: BridgeActivityKind::JetsonToUsb,
-                            timestamp: FirmwareInstant::from(Instant::now()),
-                            bytes: count,
-                        })
-                        .await;
+                    let timestamp = FirmwareInstant::from(Instant::now());
+                    let event = BridgeActivityEvent {
+                        kind: BridgeActivityKind::JetsonToUsb,
+                        timestamp,
+                        bytes: count,
+                    };
+                    status::record_bridge_rx(event.timestamp);
+                    jetson_activity.send(event).await;
                 }
                 Ok(_) => {}
                 Err(_) => {

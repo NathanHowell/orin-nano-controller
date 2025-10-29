@@ -65,12 +65,12 @@
    > recovery foo
    ERR syntax expected one of: enter, exit, now
    ```
-9. `status` prints the live strap levels and how long it has been since bridge RX/TX activity (plus the latest telemetry summary):
+9. `status` prints the live strap levels, power rail reading, and how long it has been since bridge RX/TX activity:
    ```
    > status
    straps RESET*=released REC*=released PWR*=released APO=released
-   bridge rx=+1.8s tx=+0.6s
-   last-event reboot complete t=+1.22s power=ON
+   power vdd=3300mV control-link=attached
+   bridge waiting=false rx=n/a tx=n/a
    ```
 
 ## UART Bridge

@@ -13,6 +13,7 @@ use crate::orchestrator::{
 use crate::sequences::{StrapSequenceKind, fault::FAULT_RECOVERY_MAX_RETRIES};
 
 use super::grammar::{self, Command, RebootCommand, RecoveryCommand};
+use super::status::{NoStatusProvider, StatusProvider, StatusSnapshot};
 
 /// Command execution successes.
 #[derive(Clone, Debug, PartialEq)]
@@ -20,6 +21,7 @@ pub enum CommandOutcome<Instant> {
     Reboot(RebootAck<Instant>),
     Recovery(RecoveryAck<Instant>),
     Fault(FaultAck<Instant>),
+    Status(StatusSnapshot),
 }
 
 /// Summary returned after queueing a reboot command.
@@ -119,16 +121,31 @@ where
 }
 
 /// Dispatches REPL commands into the orchestrator.
-pub struct CommandExecutor<S> {
+pub struct CommandExecutor<S, P = NoStatusProvider> {
     scheduler: S,
+    status: P,
 }
 
 impl<S> CommandExecutor<S> {
     /// Creates a new executor around the provided scheduler.
     pub const fn new(scheduler: S) -> Self {
-        Self { scheduler }
+        Self {
+            scheduler,
+            status: NoStatusProvider,
+        }
     }
 
+    /// Replaces the default status provider with a platform-specific implementation.
+    pub fn with_status_provider<P>(self, provider: P) -> CommandExecutor<S, P> {
+        let CommandExecutor { scheduler, .. } = self;
+        CommandExecutor {
+            scheduler,
+            status: provider,
+        }
+    }
+}
+
+impl<S, P> CommandExecutor<S, P> {
     /// Returns an immutable reference to the underlying scheduler.
     pub fn scheduler(&self) -> &S {
         &self.scheduler
@@ -141,13 +158,20 @@ impl<S> CommandExecutor<S> {
 
     /// Consumes the executor and yields the inner scheduler.
     pub fn into_inner(self) -> S {
-        self.scheduler
+        let CommandExecutor { scheduler, .. } = self;
+        scheduler
+    }
+
+    /// Returns a mutable reference to the status provider.
+    pub fn status_provider_mut(&mut self) -> &mut P {
+        &mut self.status
     }
 }
 
-impl<S> CommandExecutor<S>
+impl<S, P> CommandExecutor<S, P>
 where
     S: SequenceEnqueuer,
+    P: StatusProvider<S::Instant>,
 {
     /// Parses and executes a REPL command.
     pub fn execute<'a>(
@@ -191,7 +215,11 @@ where
                     .map(CommandOutcome::Fault)
                     .map_err(CommandError::Schedule)
             }
-            Command::Status => Err(CommandError::Unsupported("status")),
+            Command::Status => self
+                .status
+                .snapshot(now)
+                .map(CommandOutcome::Status)
+                .ok_or(CommandError::Unsupported("status")),
             Command::Help(_) => Err(CommandError::Unsupported("help")),
         }
     }
@@ -422,6 +450,24 @@ mod tests {
             .execute("status", now, CommandSource::UsbHost)
             .expect_err("status should be unsupported");
         assert_eq!(error, CommandError::Unsupported("status"));
+    }
+
+    #[test]
+    fn status_command_returns_snapshot_when_provider_present() {
+        struct TestProvider;
+
+        impl StatusProvider<MockInstant> for TestProvider {
+            fn snapshot(&mut self, _now: MockInstant) -> Option<StatusSnapshot> {
+                Some(StatusSnapshot::unknown())
+            }
+        }
+
+        let mut executor = executor_with_capacity(4).with_status_provider(TestProvider);
+        let now = MockInstant::micros(0);
+        let outcome = executor
+            .execute("status", now, CommandSource::UsbHost)
+            .expect("status should succeed");
+        assert!(matches!(outcome, CommandOutcome::Status(_)));
     }
 
     #[test]
