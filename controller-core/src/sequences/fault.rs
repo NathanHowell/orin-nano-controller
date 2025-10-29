@@ -4,31 +4,33 @@
 //! performs a hard power cut, then reuses the normal reboot workflow. The
 //! orchestrator may retry up to three times if downstream checks fail.
 
+use core::time::Duration;
+
 use super::{
-    Milliseconds, SequenceTemplate, StepCompletion, StrapAction, StrapId, StrapSequenceKind,
-    StrapStep, TimingConstraintSet,
-    normal::{NORMAL_REBOOT_COOLDOWN_MS, NORMAL_REBOOT_STEPS},
+    SequenceTemplate, StepCompletion, StrapAction, StrapId, StrapSequenceKind, StrapStep,
+    TimingConstraintSet,
+    normal::{NORMAL_REBOOT_COOLDOWN, NORMAL_REBOOT_STEPS},
 };
 
 /// Required duration to keep the APO strap asserted before a reboot attempt.
-pub const APO_PRECHARGE_MS: Milliseconds = Milliseconds::new(250);
+pub const APO_PRECHARGE: Duration = Duration::from_millis(250);
 /// Cooldown enforced after the fault recovery sequence completes.
-pub const FAULT_RECOVERY_COOLDOWN_MS: Milliseconds = NORMAL_REBOOT_COOLDOWN_MS;
+pub const FAULT_RECOVERY_COOLDOWN: Duration = NORMAL_REBOOT_COOLDOWN;
 /// Maximum number of retries permitted by the fault recovery workflow.
 pub const FAULT_RECOVERY_MAX_RETRIES: u8 = 3;
 
 const APO_ASSERT_STEP: StrapStep = StrapStep::new(
     StrapId::Apo,
     StrapAction::AssertLow,
-    APO_PRECHARGE_MS,
-    TimingConstraintSet::with_hold_range(Some(APO_PRECHARGE_MS), Some(APO_PRECHARGE_MS)),
+    APO_PRECHARGE,
+    TimingConstraintSet::with_hold_range(Some(APO_PRECHARGE), Some(APO_PRECHARGE)),
     StepCompletion::AfterDuration,
 );
 
 const APO_RELEASE_STEP: StrapStep = StrapStep::new(
     StrapId::Apo,
     StrapAction::ReleaseHigh,
-    Milliseconds::ZERO,
+    Duration::ZERO,
     TimingConstraintSet::unrestricted(),
     StepCompletion::AfterDuration,
 );
@@ -47,7 +49,7 @@ pub const FAULT_RECOVERY_STEPS: [StrapStep; 6] = [
 pub const FAULT_RECOVERY_TEMPLATE: SequenceTemplate = SequenceTemplate::new(
     StrapSequenceKind::FaultRecovery,
     &FAULT_RECOVERY_STEPS,
-    FAULT_RECOVERY_COOLDOWN_MS,
+    FAULT_RECOVERY_COOLDOWN,
     Some(FAULT_RECOVERY_MAX_RETRIES),
 );
 
@@ -72,18 +74,18 @@ mod tests {
         let apo_assert = &FAULT_RECOVERY_STEPS[0];
         assert_eq!(apo_assert.line, StrapId::Apo);
         assert_eq!(apo_assert.action, StrapAction::AssertLow);
-        assert_eq!(apo_assert.hold_for, APO_PRECHARGE_MS);
-        assert_eq!(apo_assert.constraints.min_hold, Some(APO_PRECHARGE_MS));
-        assert_eq!(apo_assert.constraints.max_hold, Some(APO_PRECHARGE_MS));
+        assert_eq!(apo_assert.hold_for, APO_PRECHARGE);
+        assert_eq!(apo_assert.constraints.min_hold, Some(APO_PRECHARGE));
+        assert_eq!(apo_assert.constraints.max_hold, Some(APO_PRECHARGE));
 
         let apo_release = &FAULT_RECOVERY_STEPS[1];
         assert_eq!(apo_release.line, StrapId::Apo);
         assert_eq!(apo_release.action, StrapAction::ReleaseHigh);
-        assert_eq!(apo_release.hold_for, Milliseconds::ZERO);
+        assert_eq!(apo_release.hold_for, Duration::ZERO);
 
         assert_eq!(&FAULT_RECOVERY_STEPS[2..], NORMAL_REBOOT_TEMPLATE.steps());
 
-        assert_eq!(FAULT_RECOVERY_TEMPLATE.cooldown, FAULT_RECOVERY_COOLDOWN_MS);
+        assert_eq!(FAULT_RECOVERY_TEMPLATE.cooldown, FAULT_RECOVERY_COOLDOWN);
         assert_eq!(
             FAULT_RECOVERY_TEMPLATE.max_retries,
             Some(FAULT_RECOVERY_MAX_RETRIES)

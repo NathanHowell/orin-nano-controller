@@ -13,7 +13,7 @@
 - **Validation rules**: Exhaustive match in firmware; new variants require spec/plan update.
 
 ### `StrapStep`
-- **Fields**: `line: StrapLine`, `action: StrapAction` (`AssertLow`, `ReleaseHigh`), `hold_for: Milliseconds`, `constraints: TimingConstraintSet`, `completion: StepCompletion`.
+- **Fields**: `line: StrapLine`, `action: StrapAction` (`AssertLow`, `ReleaseHigh`), `hold_for: Duration`, `constraints: TimingConstraintSet`, `completion: StepCompletion`.
 - **Relationships**: Ordered list inside a `SequenceTemplate`.
 - **Validation rules**: `hold_for` must satisfy spec windows (`PWR*` 200±20 ms, `RESET*` ≥20 ms, `REC*` pre/post windows, `APO` 250 ms); `completion` captures whether advancement is duration-based or triggered by external signals.
 
@@ -23,7 +23,7 @@
 - **Validation rules**: `OnBridgeActivity` allowed only for REC strap steps in `RecoveryImmediate`; other variants must map to telemetry events emitted by the orchestrator.
 
 ### `SequenceTemplate`
-- **Fields**: `kind: StrapSequenceKind`, `phases: Vec<StrapStep>`, `cooldown: Milliseconds`, `max_retries: Option<u8>`.
+- **Fields**: `kind: StrapSequenceKind`, `phases: Vec<StrapStep>`, `cooldown: Duration`, `max_retries: Option<u8>`.
 - **Relationships**: Owned by `StrapOrchestrator`; referenced when instantiating a `SequenceRun`.
 - **Validation rules**: `cooldown` ≥1000 ms for `PWR*`; `max_retries` = 3 for `FaultRecovery`, `None` otherwise.
 
@@ -43,7 +43,7 @@
 - **Validation rules**: Capacity fixed at 4 to honor "fixed size" requirement and prevent unbounded host queueing; `try_send` errors surface to host as `BUSY`.
 
 ### `JetsonPowerMonitor`
-- **Fields**: `adc: embassy_stm32::adc::Adc<'static, ADC1>`, `channel: PcLedChannel`, `sample_interval: Milliseconds`, `threshold: u16`.
+- **Fields**: `adc: embassy_stm32::adc::Adc<'static, ADC1>`, `channel: PcLedChannel`, `sample_interval: Duration`, `threshold: u16`.
 - **Relationships**: Samples the PC_LED_MON divider to infer Jetson front-panel LED state; reports status via `defmt` telemetry events.
 - **Validation rules**: Apply simple hysteresis around the configured threshold; debounce reporting (≥5 ms) to avoid chatter when the LED PWM updates.
 

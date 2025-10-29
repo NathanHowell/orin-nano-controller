@@ -717,9 +717,7 @@ fn sequence_run_duration(template: &SequenceTemplate) -> Duration {
     template
         .steps()
         .iter()
-        .fold(Duration::from_millis(0), |acc, step| {
-            acc + step.hold_duration()
-        })
+        .fold(Duration::ZERO, |acc, step| acc + step.hold_duration())
 }
 
 fn describe_step(index: usize, step: &StrapStep) -> String {
@@ -739,14 +737,8 @@ fn describe_step(index: usize, step: &StrapStep) -> String {
 }
 
 fn describe_constraints(step: &StrapStep) -> String {
-    let min = step
-        .constraints
-        .min_hold
-        .map(|value| format_duration_short(value.as_duration()));
-    let max = step
-        .constraints
-        .max_hold
-        .map(|value| format_duration_short(value.as_duration()));
+    let min = step.constraints.min_hold.map(format_duration_short);
+    let max = step.constraints.max_hold.map(format_duration_short);
 
     match (min, max) {
         (Some(min), Some(max)) => format!("limits={min}..{max}"),

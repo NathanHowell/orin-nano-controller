@@ -1,8 +1,8 @@
 use core::time::Duration;
 
 use controller_core::sequences::recovery::{
-    RECOVERY_COOLDOWN_MS, RECOVERY_POST_RESET_HOLD_MS, RECOVERY_PRE_RESET_HOLD_MS,
-    recovery_entry_template, recovery_immediate_template,
+    RECOVERY_COOLDOWN, RECOVERY_POST_RESET_HOLD, RECOVERY_PRE_RESET_HOLD, recovery_entry_template,
+    recovery_immediate_template,
 };
 use controller_core::sequences::{StepCompletion, StrapAction, StrapId, StrapSequenceKind};
 
@@ -21,29 +21,19 @@ fn recovery_entry_rec_hold_windows_are_enforced() {
     let pre_hold = &steps[0];
     assert_eq!(pre_hold.line, StrapId::Rec);
     assert_eq!(pre_hold.action, StrapAction::AssertLow);
-    assert_eq!(
-        pre_hold.hold_duration(),
-        Duration::from_millis(RECOVERY_PRE_RESET_HOLD_MS.as_u32() as u64)
-    );
+    assert_eq!(pre_hold.hold_duration(), RECOVERY_PRE_RESET_HOLD);
     assert_eq!(
         pre_hold.constraints.min_hold_duration(),
-        Some(Duration::from_millis(
-            RECOVERY_PRE_RESET_HOLD_MS.as_u32() as u64
-        ))
+        Some(RECOVERY_PRE_RESET_HOLD)
     );
 
     let post_hold = &steps[3];
     assert_eq!(post_hold.line, StrapId::Rec);
     assert_eq!(post_hold.action, StrapAction::AssertLow);
-    assert_eq!(
-        post_hold.hold_duration(),
-        Duration::from_millis(RECOVERY_POST_RESET_HOLD_MS.as_u32() as u64)
-    );
+    assert_eq!(post_hold.hold_duration(), RECOVERY_POST_RESET_HOLD);
     assert_eq!(
         post_hold.constraints.min_hold_duration(),
-        Some(Duration::from_millis(
-            RECOVERY_POST_RESET_HOLD_MS.as_u32() as u64
-        ))
+        Some(RECOVERY_POST_RESET_HOLD)
     );
 
     let release = &steps[4];
@@ -51,10 +41,7 @@ fn recovery_entry_rec_hold_windows_are_enforced() {
     assert_eq!(release.action, StrapAction::ReleaseHigh);
     assert_eq!(release.completion, StepCompletion::AfterDuration);
 
-    assert_eq!(
-        template.cooldown_duration(),
-        Duration::from_millis(RECOVERY_COOLDOWN_MS.as_u32() as u64)
-    );
+    assert_eq!(template.cooldown_duration(), RECOVERY_COOLDOWN);
 }
 
 #[test]
@@ -80,7 +67,7 @@ fn recovery_immediate_waits_for_bridge_activity_before_releasing_rec() {
     assert_eq!(wait_step.completion, StepCompletion::OnBridgeActivity);
     assert_eq!(
         wait_step.hold_duration(),
-        Duration::from_millis(0),
+        Duration::ZERO,
         "bridge wait holds indefinitely until activity"
     );
 

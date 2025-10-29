@@ -23,42 +23,6 @@ pub use recovery::{
 /// Longest sequence we expect to encode (FaultRecovery) plus one step of headroom.
 pub const MAX_SEQUENCE_STEPS: usize = 8;
 
-/// Convenience wrapper that keeps millisecond values const-friendly while still
-/// allowing callers to convert to [`Duration`] when needed.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct Milliseconds(u32);
-
-impl Milliseconds {
-    pub const ZERO: Self = Self::new(0);
-
-    /// Creates a new millisecond value.
-    pub const fn new(ms: u32) -> Self {
-        Self(ms)
-    }
-
-    /// Returns the raw millisecond count.
-    pub const fn as_u32(self) -> u32 {
-        self.0
-    }
-
-    /// Converts the value to a [`Duration`].
-    pub fn as_duration(self) -> Duration {
-        self.into()
-    }
-}
-
-impl From<u32> for Milliseconds {
-    fn from(value: u32) -> Self {
-        Self::new(value)
-    }
-}
-
-impl From<Milliseconds> for Duration {
-    fn from(value: Milliseconds) -> Self {
-        Duration::from_millis(value.0 as u64)
-    }
-}
-
 /// Identifier for the logical strap lines exposed by the controller.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum StrapId {
@@ -196,10 +160,10 @@ pub enum StrapAction {
 /// Optional timing guardrails associated with a step.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct TimingConstraintSet {
-    pub min_hold: Option<Milliseconds>,
-    pub max_hold: Option<Milliseconds>,
-    pub pre_assert_delay: Option<Milliseconds>,
-    pub post_release_delay: Option<Milliseconds>,
+    pub min_hold: Option<Duration>,
+    pub max_hold: Option<Duration>,
+    pub pre_assert_delay: Option<Duration>,
+    pub post_release_delay: Option<Duration>,
 }
 
 impl TimingConstraintSet {
@@ -214,10 +178,7 @@ impl TimingConstraintSet {
     }
 
     /// Create a constraint that bounds the hold duration.
-    pub const fn with_hold_range(
-        min_hold: Option<Milliseconds>,
-        max_hold: Option<Milliseconds>,
-    ) -> Self {
+    pub const fn with_hold_range(min_hold: Option<Duration>, max_hold: Option<Duration>) -> Self {
         Self {
             min_hold,
             max_hold,
@@ -227,7 +188,7 @@ impl TimingConstraintSet {
     }
 
     /// Validate that a hold duration sits within the configured range.
-    pub fn allows_hold(&self, hold_for: Milliseconds) -> bool {
+    pub fn allows_hold(&self, hold_for: Duration) -> bool {
         if let Some(min) = self.min_hold
             && hold_for < min
         {
@@ -243,12 +204,12 @@ impl TimingConstraintSet {
 
     /// Converts the minimum hold constraint to a [`Duration`], if present.
     pub fn min_hold_duration(&self) -> Option<Duration> {
-        self.min_hold.map(Into::into)
+        self.min_hold
     }
 
     /// Converts the maximum hold constraint to a [`Duration`], if present.
     pub fn max_hold_duration(&self) -> Option<Duration> {
-        self.max_hold.map(Into::into)
+        self.max_hold
     }
 }
 
@@ -265,7 +226,7 @@ pub enum StepCompletion {
 pub struct StrapStep {
     pub line: StrapId,
     pub action: StrapAction,
-    pub hold_for: Milliseconds,
+    pub hold_for: Duration,
     pub constraints: TimingConstraintSet,
     pub completion: StepCompletion,
 }
@@ -274,7 +235,7 @@ impl StrapStep {
     pub const fn new(
         line: StrapId,
         action: StrapAction,
-        hold_for: Milliseconds,
+        hold_for: Duration,
         constraints: TimingConstraintSet,
         completion: StepCompletion,
     ) -> Self {
@@ -294,7 +255,7 @@ impl StrapStep {
 
     /// Returns the hold duration as a [`Duration`].
     pub fn hold_duration(&self) -> Duration {
-        self.hold_for.into()
+        self.hold_for
     }
 }
 
@@ -312,7 +273,7 @@ pub enum StrapSequenceKind {
 pub struct SequenceTemplate {
     pub kind: StrapSequenceKind,
     pub phases: &'static [StrapStep],
-    pub cooldown: Milliseconds,
+    pub cooldown: Duration,
     pub max_retries: Option<u8>,
 }
 
@@ -320,7 +281,7 @@ impl SequenceTemplate {
     pub const fn new(
         kind: StrapSequenceKind,
         phases: &'static [StrapStep],
-        cooldown: Milliseconds,
+        cooldown: Duration,
         max_retries: Option<u8>,
     ) -> Self {
         Self {
@@ -343,7 +304,7 @@ impl SequenceTemplate {
 
     /// Returns the cooldown interval as a [`Duration`].
     pub fn cooldown_duration(&self) -> Duration {
-        self.cooldown.into()
+        self.cooldown
     }
 }
 
@@ -364,12 +325,12 @@ mod tests {
     #[test]
     fn timing_constraints_allow_expected_ranges() {
         let constraints = TimingConstraintSet::with_hold_range(
-            Some(Milliseconds::new(100)),
-            Some(Milliseconds::new(250)),
+            Some(Duration::from_millis(100)),
+            Some(Duration::from_millis(250)),
         );
-        assert!(constraints.allows_hold(Milliseconds::new(150)));
-        assert!(!constraints.allows_hold(Milliseconds::new(50)));
-        assert!(!constraints.allows_hold(Milliseconds::new(300)));
+        assert!(constraints.allows_hold(Duration::from_millis(150)));
+        assert!(!constraints.allows_hold(Duration::from_millis(50)));
+        assert!(!constraints.allows_hold(Duration::from_millis(300)));
     }
 
     #[test]
@@ -378,14 +339,14 @@ mod tests {
             StrapStep::new(
                 StrapId::Pwr,
                 StrapAction::AssertLow,
-                Milliseconds::new(200),
+                Duration::from_millis(200),
                 TimingConstraintSet::unrestricted(),
                 StepCompletion::AfterDuration,
             ),
             StrapStep::new(
                 StrapId::Reset,
                 StrapAction::ReleaseHigh,
-                Milliseconds::new(0),
+                Duration::ZERO,
                 TimingConstraintSet::unrestricted(),
                 StepCompletion::AfterDuration,
             ),
@@ -393,7 +354,7 @@ mod tests {
         const TEMPLATE: SequenceTemplate = SequenceTemplate::new(
             StrapSequenceKind::NormalReboot,
             &STEPS,
-            Milliseconds::new(1_000),
+            Duration::from_millis(1_000),
             Some(3),
         );
 

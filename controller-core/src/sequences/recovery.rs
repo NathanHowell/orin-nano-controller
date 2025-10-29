@@ -6,40 +6,42 @@
 //! - `RecoveryImmediate` (triggered by `recovery now`) holds REC asserted until
 //!   Jetson console activity appears on the UART bridge, fulfilling FR-005.
 
+use core::time::Duration;
+
 use super::{
-    Milliseconds, SequenceTemplate, StepCompletion, StrapAction, StrapId, StrapSequenceKind,
-    StrapStep, TimingConstraintSet,
+    SequenceTemplate, StepCompletion, StrapAction, StrapId, StrapSequenceKind, StrapStep,
+    TimingConstraintSet,
 };
 
 /// Minimum period REC must be asserted prior to toggling reset.
-pub const RECOVERY_PRE_RESET_HOLD_MS: Milliseconds = Milliseconds::new(100);
+pub const RECOVERY_PRE_RESET_HOLD: Duration = Duration::from_millis(100);
 /// Minimum period REC remains asserted after reset is released.
-pub const RECOVERY_POST_RESET_HOLD_MS: Milliseconds = Milliseconds::new(500);
+pub const RECOVERY_POST_RESET_HOLD: Duration = Duration::from_millis(500);
 /// Cooldown enforced after a recovery sequence completes.
-pub const RECOVERY_COOLDOWN_MS: Milliseconds = Milliseconds::new(1_000);
+pub const RECOVERY_COOLDOWN: Duration = Duration::from_millis(1_000);
 /// Minimum duration RESET must remain asserted during recovery.
-pub const RECOVERY_RESET_PULSE_MIN_MS: Milliseconds = Milliseconds::new(20);
+pub const RECOVERY_RESET_PULSE_MIN: Duration = Duration::from_millis(20);
 
 const REC_ASSERT_PRE_STEP: StrapStep = StrapStep::new(
     StrapId::Rec,
     StrapAction::AssertLow,
-    RECOVERY_PRE_RESET_HOLD_MS,
-    TimingConstraintSet::with_hold_range(Some(RECOVERY_PRE_RESET_HOLD_MS), None),
+    RECOVERY_PRE_RESET_HOLD,
+    TimingConstraintSet::with_hold_range(Some(RECOVERY_PRE_RESET_HOLD), None),
     StepCompletion::AfterDuration,
 );
 
 const RESET_ASSERT_STEP: StrapStep = StrapStep::new(
     StrapId::Reset,
     StrapAction::AssertLow,
-    RECOVERY_RESET_PULSE_MIN_MS,
-    TimingConstraintSet::with_hold_range(Some(RECOVERY_RESET_PULSE_MIN_MS), None),
+    RECOVERY_RESET_PULSE_MIN,
+    TimingConstraintSet::with_hold_range(Some(RECOVERY_RESET_PULSE_MIN), None),
     StepCompletion::AfterDuration,
 );
 
 const RESET_RELEASE_STEP: StrapStep = StrapStep::new(
     StrapId::Reset,
     StrapAction::ReleaseHigh,
-    Milliseconds::ZERO,
+    Duration::ZERO,
     TimingConstraintSet::unrestricted(),
     StepCompletion::AfterDuration,
 );
@@ -47,15 +49,15 @@ const RESET_RELEASE_STEP: StrapStep = StrapStep::new(
 const REC_POST_HOLD_STEP: StrapStep = StrapStep::new(
     StrapId::Rec,
     StrapAction::AssertLow,
-    RECOVERY_POST_RESET_HOLD_MS,
-    TimingConstraintSet::with_hold_range(Some(RECOVERY_POST_RESET_HOLD_MS), None),
+    RECOVERY_POST_RESET_HOLD,
+    TimingConstraintSet::with_hold_range(Some(RECOVERY_POST_RESET_HOLD), None),
     StepCompletion::AfterDuration,
 );
 
 const REC_RELEASE_STEP: StrapStep = StrapStep::new(
     StrapId::Rec,
     StrapAction::ReleaseHigh,
-    Milliseconds::ZERO,
+    Duration::ZERO,
     TimingConstraintSet::unrestricted(),
     StepCompletion::AfterDuration,
 );
@@ -63,7 +65,7 @@ const REC_RELEASE_STEP: StrapStep = StrapStep::new(
 const REC_WAIT_FOR_ACTIVITY_STEP: StrapStep = StrapStep::new(
     StrapId::Rec,
     StrapAction::AssertLow,
-    Milliseconds::ZERO,
+    Duration::ZERO,
     TimingConstraintSet::unrestricted(),
     StepCompletion::OnBridgeActivity,
 );
@@ -91,7 +93,7 @@ pub const RECOVERY_IMMEDIATE_STEPS: [StrapStep; 6] = [
 pub const RECOVERY_ENTRY_TEMPLATE: SequenceTemplate = SequenceTemplate::new(
     StrapSequenceKind::RecoveryEntry,
     &RECOVERY_ENTRY_STEPS,
-    RECOVERY_COOLDOWN_MS,
+    RECOVERY_COOLDOWN,
     None,
 );
 
@@ -99,7 +101,7 @@ pub const RECOVERY_ENTRY_TEMPLATE: SequenceTemplate = SequenceTemplate::new(
 pub const RECOVERY_IMMEDIATE_TEMPLATE: SequenceTemplate = SequenceTemplate::new(
     StrapSequenceKind::RecoveryImmediate,
     &RECOVERY_IMMEDIATE_STEPS,
-    RECOVERY_COOLDOWN_MS,
+    RECOVERY_COOLDOWN,
     None,
 );
 
@@ -128,19 +130,16 @@ mod tests {
         let pre_hold = &RECOVERY_ENTRY_STEPS[0];
         assert_eq!(pre_hold.line, StrapId::Rec);
         assert_eq!(pre_hold.action, StrapAction::AssertLow);
-        assert_eq!(pre_hold.hold_for, RECOVERY_PRE_RESET_HOLD_MS);
-        assert_eq!(
-            pre_hold.constraints.min_hold,
-            Some(RECOVERY_PRE_RESET_HOLD_MS)
-        );
+        assert_eq!(pre_hold.hold_for, RECOVERY_PRE_RESET_HOLD);
+        assert_eq!(pre_hold.constraints.min_hold, Some(RECOVERY_PRE_RESET_HOLD));
         assert_eq!(pre_hold.constraints.max_hold, None);
 
         let post_hold = &RECOVERY_ENTRY_STEPS[3];
         assert_eq!(post_hold.line, StrapId::Rec);
-        assert_eq!(post_hold.hold_for, RECOVERY_POST_RESET_HOLD_MS);
+        assert_eq!(post_hold.hold_for, RECOVERY_POST_RESET_HOLD);
         assert_eq!(
             post_hold.constraints.min_hold,
-            Some(RECOVERY_POST_RESET_HOLD_MS)
+            Some(RECOVERY_POST_RESET_HOLD)
         );
         assert_eq!(post_hold.constraints.max_hold, None);
 

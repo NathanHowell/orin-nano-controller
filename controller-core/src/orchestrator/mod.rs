@@ -1357,7 +1357,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sequences::{Milliseconds, StrapAction, StrapId, TimingConstraintSet};
+    use crate::sequences::{StrapAction, StrapId, TimingConstraintSet};
     use heapless::Vec as HeaplessVec;
 
     #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -1665,7 +1665,7 @@ mod tests {
         let step = StrapStep::new(
             StrapId::Rec,
             StrapAction::AssertLow,
-            Milliseconds::ZERO,
+            Duration::ZERO,
             TimingConstraintSet::unrestricted(),
             StepCompletion::OnBridgeActivity,
         );
@@ -1685,7 +1685,7 @@ mod tests {
         let step = StrapStep::new(
             StrapId::Rec,
             StrapAction::AssertLow,
-            Milliseconds::ZERO,
+            Duration::ZERO,
             TimingConstraintSet::unrestricted(),
             StepCompletion::OnBridgeActivity,
         );
@@ -1705,7 +1705,7 @@ mod tests {
         let step = StrapStep::new(
             StrapId::Rec,
             StrapAction::AssertLow,
-            Milliseconds::ZERO,
+            Duration::ZERO,
             TimingConstraintSet::unrestricted(),
             StepCompletion::OnBridgeActivity,
         );
@@ -1728,7 +1728,7 @@ mod tests {
         let step = StrapStep::new(
             StrapId::Rec,
             StrapAction::AssertLow,
-            Milliseconds::ZERO,
+            Duration::ZERO,
             TimingConstraintSet::unrestricted(),
             StepCompletion::OnBridgeActivity,
         );
