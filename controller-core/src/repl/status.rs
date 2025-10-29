@@ -2,11 +2,13 @@
 //!
 //! The firmware and emulator implement [`StatusProvider`] so that the REPL
 //! can surface live strap, power, and debugger state through the `status`
-//! command without duplicating platform logic.
+//! command without duplicating platform logic. [`StatusFormatter`] keeps the
+//! textual rendering consistent across front-ends.
 
+use core::fmt;
 use core::time::Duration;
 
-use crate::sequences::StrapId;
+use crate::sequences::{strap_by_id, StrapId};
 
 /// Logical level reported for a strap line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -125,5 +127,95 @@ pub struct NoStatusProvider;
 impl<Instant> StatusProvider<Instant> for NoStatusProvider {
     fn snapshot(&mut self, _now: Instant) -> Option<StatusSnapshot> {
         None
+    }
+}
+
+/// Helper that renders a [`StatusSnapshot`] into human-readable lines.
+#[derive(Clone, Copy, Debug)]
+pub struct StatusFormatter<'a> {
+    snapshot: &'a StatusSnapshot,
+}
+
+impl<'a> StatusFormatter<'a> {
+    /// Creates a new formatter for the provided snapshot.
+    #[must_use]
+    pub const fn new(snapshot: &'a StatusSnapshot) -> Self {
+        Self { snapshot }
+    }
+
+    /// Writes the strap-state line (e.g. `straps RESET*=released ...`).
+    pub fn write_straps_line<W: fmt::Write>(&self, writer: &mut W) -> fmt::Result {
+        writer.write_str("straps")?;
+        for sample in self.snapshot.strap_levels.iter() {
+            let name = strap_by_id(sample.id).name;
+            let state = if sample.level.is_asserted() {
+                "asserted"
+            } else {
+                "released"
+            };
+            write!(writer, " {}={}", name, state)?;
+        }
+        Ok(())
+    }
+
+    /// Writes the power/debug line (e.g. `power vdd=3300mV control-link=attached debug=connected`).
+    pub fn write_power_line<W: fmt::Write>(&self, writer: &mut W) -> fmt::Result {
+        writer.write_str("power vdd=")?;
+        match self.snapshot.vdd_mv {
+            Some(mv) => write!(writer, "{}mV", mv)?,
+            None => writer.write_str("unknown")?,
+        }
+
+        writer.write_str(" control-link=")?;
+        writer.write_str(if self.snapshot.control_link_attached {
+            "attached"
+        } else {
+            "lost"
+        })?;
+
+        writer.write_str(" debug=")?;
+        writer.write_str(match self.snapshot.debug_link {
+            DebugLinkState::Connected => "connected",
+            DebugLinkState::Disconnected => "disconnected",
+            DebugLinkState::Unknown => "unknown",
+        })?;
+
+        Ok(())
+    }
+
+    /// Writes the bridge line (e.g. `bridge waiting=false rx=+1.2s tx=n/a`).
+    pub fn write_bridge_line<W: fmt::Write>(&self, writer: &mut W) -> fmt::Result {
+        writer.write_str("bridge waiting=")?;
+        writer.write_str(if self.snapshot.bridge.waiting_for_activity {
+            "true"
+        } else {
+            "false"
+        })?;
+
+        writer.write_char(' ')?;
+        writer.write_str("rx=")?;
+        write_duration(writer, self.snapshot.bridge.jetson_to_usb_idle)?;
+
+        writer.write_char(' ')?;
+        writer.write_str("tx=")?;
+        write_duration(writer, self.snapshot.bridge.usb_to_jetson_idle)?;
+
+        Ok(())
+    }
+}
+
+fn write_duration<W: fmt::Write>(writer: &mut W, duration: Option<Duration>) -> fmt::Result {
+    match duration {
+        None => writer.write_str("n/a"),
+        Some(value) if value >= Duration::from_secs(1) => {
+            let millis = value.as_millis() as u64;
+            let seconds = millis / 1_000;
+            let tenths = (millis % 1_000) / 100;
+            write!(writer, "+{seconds}.{tenths}s")
+        }
+        Some(value) if value >= Duration::from_millis(1) => {
+            write!(writer, "+{}ms", value.as_millis())
+        }
+        Some(value) => write!(writer, "+{}us", value.as_micros()),
     }
 }

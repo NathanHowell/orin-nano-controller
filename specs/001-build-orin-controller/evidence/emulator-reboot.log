@@ -1,46 +1,9 @@
 # Orin Controller Emulator reboot transcript
 # Timestamps are milliseconds since session start
 
-[+     0 ms] HOST> [TAB] prefix="re" suffix="" cursor=2
-[+     0 ms] EMU < completion options (2)
-[+     0 ms] EMU <   reboot
-[+     0 ms] EMU <   recovery
-[+     0 ms] HOST> [TAB] prefix="rebo" suffix="" cursor=4
-[+     0 ms] EMU < completion applied: reboot (range=0..4) +space
-[+     0 ms] HOST> [TAB] prefix="reboot " suffix="" cursor=7
-[+     0 ms] EMU < completion options (2)
-[+     0 ms] EMU <   now
-[+     0 ms] EMU <   delay
-[+     0 ms] HOST> [TAB] prefix="reboot n" suffix="" cursor=8
-[+     0 ms] EMU < completion applied: now (range=7..8)
-[+     0 ms] HOST> [TAB] prefix="fault " suffix="" cursor=6
-[+     0 ms] EMU < completion applied: recover (range=6..6)
-[+     0 ms] HOST> [TAB] prefix="fault recover " suffix="" cursor=14
-[+     0 ms] EMU < completion options (3)
-[+     0 ms] EMU <   retries=1
-[+     0 ms] EMU <   retries=2
-[+     0 ms] EMU <   retries=3
-[+     0 ms] HOST> [TAB] prefix="fault recover retries=" suffix="" cursor=22
-[+     0 ms] EMU < completion options (3)
-[+     0 ms] EMU <   retries=1
-[+     0 ms] EMU <   retries=2
-[+     0 ms] EMU <   retries=3
-[+     0 ms] HOST> [TAB] prefix="fault recover retries=2" suffix="" cursor=23
-[+     0 ms] EMU < completion applied: retries=2 (range=14..23)
-[+     0 ms] HOST> reboot now
-[+     0 ms] EMU < OK reboot queued seq=1 at=+0ms start-after=0ms cooldown=1.000s ready=+2220ms queue-depth=1
-[+     0 ms] EMU < NormalReboot run-duration=1.220s steps=4
-[+     0 ms] EMU <   1. PWR* assert-low hold=200ms limits=180ms..220ms mode=after-duration
-[+     0 ms] EMU <   2. PWR* release-high hold=1.000s limits=900ms..1.100s mode=after-duration
-[+     0 ms] EMU <   3. RESET* assert-low hold=20ms min=20ms mode=after-duration
-[+     0 ms] EMU <   4. RESET* release-high hold=0ms limits=unbounded mode=after-duration
-[+     0 ms] HOST> fault recover retries=2
-[+     0 ms] EMU < OK fault recover seq=2 at=+0ms retries=2
-[+     0 ms] EMU < retry override applied (default 3)
-[+     0 ms] EMU < FaultRecovery run-duration=1.470s steps=6
-[+     0 ms] EMU <   1. APO assert-low hold=250ms limits=250ms..250ms mode=after-duration
-[+     0 ms] EMU <   2. APO release-high hold=0ms limits=unbounded mode=after-duration
-[+     0 ms] EMU <   3. PWR* assert-low hold=200ms limits=180ms..220ms mode=after-duration
-[+     0 ms] EMU <   4. PWR* release-high hold=1.000s limits=900ms..1.100s mode=after-duration
-[+     0 ms] EMU <   5. RESET* assert-low hold=20ms min=20ms mode=after-duration
-[+     0 ms] EMU <   6. RESET* release-high hold=0ms limits=unbounded mode=after-duration
+[+  1068 ms] HOST> [TAB] prefix="statu" suffix="" cursor=5
+[+  1068 ms] EMU < completion applied: status (range=0..5)
+[+  1336 ms] HOST> status
+[+  1336 ms] EMU < straps RESET*=released REC*=released PWR*=released APO=released
+[+  1336 ms] EMU < power vdd=3300mV control-link=attached debug=unknown
+[+  1336 ms] EMU < bridge waiting=false rx=n/a tx=n/a

@@ -15,7 +15,7 @@ use controller_core::sequences::StrapId;
 use portable_atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 
 #[cfg(target_os = "none")]
-use cortex_m::register::dhcsr;
+use cortex_m::peripheral::DCB;
 
 use crate::straps::FirmwareInstant;
 
@@ -171,5 +171,5 @@ const fn detect_debug_link() -> DebugLinkState {
 
 #[cfg(target_os = "none")]
 fn debugger_attached() -> bool {
-    dhcsr::read().c_debugen()
+    DCB::is_debugger_attached()
 }

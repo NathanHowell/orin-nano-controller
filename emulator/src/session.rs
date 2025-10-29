@@ -14,14 +14,14 @@ use controller_core::repl::commands::{
     CommandError, CommandExecutor, CommandOutcome, FaultAck, RebootAck, RecoveryAck,
 };
 use controller_core::repl::status::{
-    BridgeActivitySnapshot, DebugLinkState, StatusProvider, StatusSnapshot, StrapLevel, StrapSample,
+    BridgeActivitySnapshot, DebugLinkState, StatusFormatter, StatusProvider, StatusSnapshot,
+    StrapLevel, StrapSample,
 };
 use controller_core::repl::completion::{CompletionEngine, Replacement};
 use controller_core::repl::grammar::RecoveryCommand;
 use controller_core::sequences::fault::FAULT_RECOVERY_MAX_RETRIES;
 use controller_core::sequences::{
     SequenceTemplate, StepCompletion, StrapAction, StrapId, StrapSequenceKind, StrapStep,
-    strap_by_id,
 };
 
 const DEFAULT_QUEUE_DEPTH: usize = 4;
@@ -760,78 +760,27 @@ fn format_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
 }
 
 fn format_strap_line(snapshot: &StatusSnapshot) -> String {
-    let mut line = String::from("straps");
-    for sample in snapshot.strap_levels.iter() {
-        let name = strap_by_id(sample.id).name;
-        let state = if sample.level.is_asserted() {
-            "asserted"
-        } else {
-            "released"
-        };
-        line.push_str(&format!(" {}={}", name, state));
-    }
+    let mut line = String::new();
+    StatusFormatter::new(snapshot)
+        .write_straps_line(&mut line)
+        .expect("format straps line");
     line
 }
 
 fn format_power_line(snapshot: &StatusSnapshot) -> String {
-    let mut line = String::from("power");
-    match snapshot.vdd_mv {
-        Some(mv) => line.push_str(&format!(" vdd={}mV", mv)),
-        None => line.push_str(" vdd=unknown"),
-    }
-    line.push_str(&format!(
-        " control-link={}",
-        if snapshot.control_link_attached {
-            "attached"
-        } else {
-            "lost"
-        }
-    ));
-
-    match snapshot.debug_link {
-        DebugLinkState::Unknown => {}
-        DebugLinkState::Disconnected => line.push_str(" debug=disconnected"),
-        DebugLinkState::Connected => line.push_str(" debug=connected"),
-    }
-
+    let mut line = String::new();
+    StatusFormatter::new(snapshot)
+        .write_power_line(&mut line)
+        .expect("format power line");
     line
 }
 
 fn format_bridge_line(snapshot: &StatusSnapshot) -> String {
-    let mut line = String::from("bridge");
-    line.push_str(&format!(
-        " waiting={}",
-        if snapshot.bridge.waiting_for_activity {
-            "true"
-        } else {
-            "false"
-        }
-    ));
-    line.push_str(&format!(
-        " rx={}",
-        format_idle_duration(snapshot.bridge.jetson_to_usb_idle)
-    ));
-    line.push_str(&format!(
-        " tx={}",
-        format_idle_duration(snapshot.bridge.usb_to_jetson_idle)
-    ));
+    let mut line = String::new();
+    StatusFormatter::new(snapshot)
+        .write_bridge_line(&mut line)
+        .expect("format bridge line");
     line
-}
-
-fn format_idle_duration(duration: Option<Duration>) -> String {
-    match duration {
-        Some(value) if value >= Duration::from_secs(1) => {
-            let millis = value.as_millis() as u64;
-            let seconds = millis / 1_000;
-            let tenths = (millis % 1_000) / 100;
-            format!("+{seconds}.{tenths}s")
-        }
-        Some(value) if value >= Duration::from_millis(1) => {
-            format!("+{}ms", value.as_millis())
-        }
-        Some(value) => format!("+{}us", value.as_micros()),
-        None => "n/a".to_string(),
-    }
 }
 
 #[derive(Clone)]
