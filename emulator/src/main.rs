@@ -198,11 +198,7 @@ fn handle_completion(
     Ok(())
 }
 
-fn apply_replacement(
-    buffer: &mut String,
-    cursor_index: &mut usize,
-    replacement: &Replacement,
-) {
+fn apply_replacement(buffer: &mut String, cursor_index: &mut usize, replacement: &Replacement) {
     let clamped_start = replacement.start.min(buffer.len());
     let clamped_end = replacement.end.min(buffer.len());
     buffer.replace_range(clamped_start..clamped_end, replacement.value);

@@ -373,10 +373,8 @@ impl Session {
                 );
 
                 if override_used {
-                    let note = format!(
-                        "retry override applied (default {default_budget})"
-                    );
-                SequenceNarration::with_notes(head, vec![note])
+                    let note = format!("retry override applied (default {default_budget})");
+                    SequenceNarration::with_notes(head, vec![note])
                 } else {
                     SequenceNarration::new(head)
                 }

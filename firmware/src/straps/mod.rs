@@ -5,11 +5,11 @@ pub mod orchestrator;
 pub use controller_core::telemetry::TelemetryEventKind;
 use controller_core::telemetry::TelemetryInstant;
 use controller_core::{orchestrator as core_orch, sequences as core_seq};
+use core::convert::TryFrom;
 #[cfg(not(target_os = "none"))]
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 #[cfg(target_os = "none")]
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use core::convert::TryFrom;
 use embassy_sync::channel::{Channel, Receiver, Sender, TrySendError};
 use embassy_time::{Duration as EmbassyDuration, Instant as EmbassyInstant};
 

@@ -421,8 +421,7 @@ pub fn parse(line: &str) -> Result<Command<'_>, ParseError> {
     Ok(command)
 }
 
-fn command<'src, 'slice>(
-) -> impl Parser<Input<'src, 'slice>, Command<'src>, ErrMode<GrammarError>>
+fn command<'src, 'slice>() -> impl Parser<Input<'src, 'slice>, Command<'src>, ErrMode<GrammarError>>
 where
     'src: 'slice,
 {
@@ -541,31 +540,23 @@ where
                 parse_node(branch.grammar, input, state)
             } else {
                 Err(ErrMode::Backtrack(GrammarError::unexpected(
-                    branches
-                        .first()
-                        .map_or("subcommand", |branch| branch.name),
+                    branches.first().map_or("subcommand", |branch| branch.name),
                     Some(token),
                 )))
             }
         }
         Some((token, _)) if token.kind == TokenKind::Eol => {
             Err(ErrMode::Backtrack(GrammarError::unexpected(
-                branches
-                    .first()
-                    .map_or("subcommand", |branch| branch.name),
+                branches.first().map_or("subcommand", |branch| branch.name),
                 Some(token),
             )))
         }
         Some((token, _)) => Err(ErrMode::Backtrack(GrammarError::unexpected(
-            branches
-                .first()
-                .map_or("subcommand", |branch| branch.name),
+            branches.first().map_or("subcommand", |branch| branch.name),
             Some(token),
         ))),
         None => Err(ErrMode::Backtrack(GrammarError::unexpected(
-            branches
-                .first()
-                .map_or("subcommand", |branch| branch.name),
+            branches.first().map_or("subcommand", |branch| branch.name),
             None,
         ))),
     }
@@ -626,9 +617,7 @@ fn find_choice(choices: &'static [ChoiceBranch], lexeme: &str) -> Option<&'stati
 }
 
 fn choice_expected_label(choices: &'static [ChoiceBranch]) -> &'static str {
-    choices
-        .first()
-        .map_or("keyword", |choice| choice.keyword)
+    choices.first().map_or("keyword", |choice| choice.keyword)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

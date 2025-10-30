@@ -143,8 +143,8 @@ impl Add<Duration> for MockInstant {
     type Output = Self;
 
     fn add(self, rhs: Duration) -> Self::Output {
-        let micros = u64::try_from(rhs.as_micros())
-            .expect("test durations should fit within u64 micros");
+        let micros =
+            u64::try_from(rhs.as_micros()).expect("test durations should fit within u64 micros");
         Self(self.0 + micros)
     }
 }

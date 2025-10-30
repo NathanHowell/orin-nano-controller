@@ -12,9 +12,7 @@ use crate::straps::{
     EventId, FirmwareInstant, SequenceOutcome, StrapAction, StrapId, StrapSequenceKind,
     TelemetryEventKind,
 };
-pub use controller_core::telemetry::{
-    CommandTelemetry, SequenceTelemetry, TelemetryPayload,
-};
+pub use controller_core::telemetry::{CommandTelemetry, SequenceTelemetry, TelemetryPayload};
 use controller_core::telemetry::{
     TelemetryRecord as CoreTelemetryRecord, TelemetryRecorder as CoreTelemetryRecorder,
     TelemetryRing as CoreTelemetryRing,
@@ -211,9 +209,7 @@ fn emit_strap_log(
     delta_us: Option<u64>,
 ) {
     if let Some(delta) = delta_us {
-        println!(
-            "telemetry:straps {line} {action} t={timestamp_us}us Δ={delta}us"
-        );
+        println!("telemetry:straps {line} {action} t={timestamp_us}us Δ={delta}us");
     } else {
         println!("telemetry:straps {line} {action} t={timestamp_us}us");
     }
@@ -335,9 +331,7 @@ fn emit_command_log(
             "telemetry:command {stage} kind={kind} depth={queue_depth} t={timestamp_us}us wait={wait}us"
         );
     } else {
-        println!(
-            "telemetry:command {stage} kind={kind} depth={queue_depth} t={timestamp_us}us"
-        );
+        println!("telemetry:command {stage} kind={kind} depth={queue_depth} t={timestamp_us}us");
     }
 }
 
