@@ -29,7 +29,7 @@ embassy-time = "0.5.0"
 embassy-usb = {  version = "0.5.1", default-features = false }
 heapless = "0.9.1"
 regal = { git = "https://github.com/NathanHowell/regal", rev = "6b913acd86a985db694cda639d2b3d9a574e8abd" }
-regal-macros = { git = "https://github.com/NathanHowell/regal", package = "regal-macros", rev = "6b913acd86a985db694cda639d2b3d9a574e8abd" }
+regal-macros = { git = "https://github.com/NathanHowell/regal", rev = "6b913acd86a985db694cda639d2b3d9a574e8abd" }
 panic-halt = "1.0.0"
 winnow = { version = "0.7.13", default-features = false }
 critical-section = { version = "1.2.0", features = ["restore-state-bool"] }
