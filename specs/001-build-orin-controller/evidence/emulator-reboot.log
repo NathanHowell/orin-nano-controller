@@ -1,9 +1,20 @@
 # Orin Controller Emulator reboot transcript
 # Timestamps are milliseconds since session start
 
-[+  1068 ms] HOST> [TAB] prefix="statu" suffix="" cursor=5
-[+  1068 ms] EMU < completion applied: status (range=0..5)
-[+  1336 ms] HOST> status
-[+  1336 ms] EMU < straps RESET*=released REC*=released PWR*=released APO=released
-[+  1336 ms] EMU < power vdd=3300mV control-link=attached debug=unknown
-[+  1336 ms] EMU < bridge waiting=false rx=n/a tx=n/a
+[+  1956 ms] HOST> [TAB] prefix="fau" suffix="" cursor=3
+[+  1956 ms] EMU < completion applied: fault (range=0..3) +space
+[+  2277 ms] HOST> [TAB] prefix="fault " suffix="" cursor=6
+[+  2277 ms] EMU < completion applied: recover (range=6..6)
+[+  2666 ms] HOST> [TAB] prefix="fault recover" suffix="" cursor=13
+[+  2666 ms] EMU < completion applied: recover (range=6..13)
+[+  3181 ms] HOST> [TAB] prefix="fault recover" suffix="" cursor=13
+[+  3181 ms] EMU < completion applied: recover (range=6..13)
+[+  3386 ms] HOST> [TAB] prefix="fault recover" suffix="" cursor=13
+[+  3386 ms] EMU < completion applied: recover (range=6..13)
+[+  3958 ms] HOST> [TAB] prefix="fault recover " suffix="" cursor=14
+[+  3958 ms] EMU < completion applied: retries= (range=14..14)
+[+  4533 ms] HOST> [TAB] prefix="fault recover retries=" suffix="" cursor=22
+[+  4533 ms] EMU < completion options (3)
+[+  4533 ms] EMU <   retries=1
+[+  4533 ms] EMU <   retries=2
+[+  4533 ms] EMU <   retries=3

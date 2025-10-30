@@ -14,7 +14,7 @@ use controller_core::orchestrator::{
 use controller_core::repl::commands::{
     CommandError, CommandExecutor, CommandOutcome, FaultAck, RebootAck, RecoveryAck,
 };
-use controller_core::repl::completion::{CompletionEngine, Replacement};
+use controller_core::repl::completion::{CompletionEngine, CompletionResult, Replacement};
 use controller_core::repl::grammar::RecoveryCommand;
 use controller_core::repl::status::{
     StatusAccumulator, StatusFormatter, StatusInstant, StatusProvider, StatusSnapshot,
@@ -209,24 +209,29 @@ impl Session {
             .log_completion_request(elapsed, prefix, suffix, cursor)?;
 
         let result = self.completion.complete(buffer, cursor);
-        if result.options.is_empty() {
+        let CompletionResult {
+            replacement,
+            options: matches,
+        } = result;
+
+        if matches.is_empty() {
             self.transcript.log_completion_none(elapsed)?;
             return Ok(CompletionResponse::NoMatches);
         }
 
-        let options: Vec<&'static str> = result.options.iter().copied().collect();
+        if let Some(replacement) = replacement {
+            let log_replacement = replacement.clone();
+            self.transcript.log_completion_applied(
+                elapsed,
+                replacement.value,
+                Some(log_replacement),
+            )?;
+            return Ok(CompletionResponse::Applied { replacement });
+        }
+
+        let options: Vec<&'static str> = matches.iter().copied().collect();
         if options.len() == 1 {
             let candidate = options[0];
-            if let Some(replacement) = result.replacement {
-                let replacement_log = replacement.clone();
-                self.transcript.log_completion_applied(
-                    elapsed,
-                    candidate,
-                    Some(replacement_log),
-                )?;
-                return Ok(CompletionResponse::Applied { replacement });
-            }
-
             self.transcript
                 .log_completion_applied(elapsed, candidate, None)?;
             return Ok(CompletionResponse::NoMatches);
