@@ -29,6 +29,24 @@ const CONFIG_DESCRIPTOR_LEN: usize = 256;
 const BOS_DESCRIPTOR_LEN: usize = 256;
 #[cfg(target_os = "none")]
 const MSOS_DESCRIPTOR_LEN: usize = 256;
+#[cfg(target_os = "none")]
+/// Vendor ID issued through pid.codes for open hardware projects.
+const USB_VENDOR_ID_PID_CODES: u16 = 0x1209;
+#[cfg(target_os = "none")]
+/// Product ID reserved for the Orin controller firmware binary.
+const USB_PRODUCT_ID_ORIN_CONTROLLER: u16 = 0x0001;
+#[cfg(target_os = "none")]
+/// USB Miscellaneous class required when exposing multiple CDC interfaces via IAD.
+const USB_DEVICE_CLASS_MISCELLANEOUS: u8 = 0xEF;
+#[cfg(target_os = "none")]
+/// USB Common subclass mandated by the IAD composite device definition.
+const USB_DEVICE_SUBCLASS_COMMON: u8 = 0x02;
+#[cfg(target_os = "none")]
+/// USB Interface Association Descriptor protocol identifier.
+const USB_DEVICE_PROTOCOL_IAD: u8 = 0x01;
+#[cfg(target_os = "none")]
+/// Maximum bus power (in milliamps) advertised to the USB host.
+const USB_MAX_BUS_POWER_MA: u16 = 250;
 
 /// User-visible strings advertised in the USB descriptors.
 #[derive(Clone, Copy, Debug)]
@@ -136,16 +154,17 @@ where
         storage: &'static mut UsbDeviceStorage,
         strings: UsbDeviceStrings,
     ) -> Self {
-        let mut config = embassy_usb::Config::new(0x1209, 0x0001);
+        let mut config =
+            embassy_usb::Config::new(USB_VENDOR_ID_PID_CODES, USB_PRODUCT_ID_ORIN_CONTROLLER);
         config.manufacturer = Some(strings.manufacturer);
         config.product = Some(strings.product);
         config.serial_number = Some(embassy_stm32::uid::uid_hex());
         config.max_packet_size_0 = MAX_PACKET_SIZE as u8;
-        config.max_power = 250;
+        config.max_power = USB_MAX_BUS_POWER_MA;
         config.supports_remote_wakeup = true;
-        config.device_class = 0xEF;
-        config.device_sub_class = 0x02;
-        config.device_protocol = 0x01;
+        config.device_class = USB_DEVICE_CLASS_MISCELLANEOUS;
+        config.device_sub_class = USB_DEVICE_SUBCLASS_COMMON;
+        config.device_protocol = USB_DEVICE_PROTOCOL_IAD;
         config.composite_with_iads = true;
 
         let mut builder = embassy_usb::Builder::new(
