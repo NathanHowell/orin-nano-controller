@@ -9,7 +9,7 @@ Stand up a shared `controller-core` crate that owns strap orchestration, queuein
 
 ## Technical Context
 
-**Language/Version**: Rust stable 1.90.0 (edition 2024) pinned via `rust-toolchain.toml`; no nightly fallback expected.  
+**Language/Version**: Rust stable 1.91.0 (edition 2024) pinned via `rust-toolchain.toml`; no nightly fallback expected.  
 **Primary Dependencies**: Workspace split into `controller-core` (business logic, REPL grammar via `regal` + `winnow`, async traits via `embassy-sync`), `firmware` (Embassy `embassy-executor`, `embassy-stm32`, `embassy-time`, `embassy-usb`, `defmt`), and `emulator` (host-side REPL harness using `controller-core` plus standard library concurrency).  
 **Storage**: N/A (`no_std`, volatile peripherals only)  
 **Testing**: `cargo test -p controller-core` (host) for parser/logic modules; `cargo test` (workspace) to include any future host harnesses; hardware validation via probe-run and bench traces; manual integration capturing `defmt` logs plus emulator parity runs.  

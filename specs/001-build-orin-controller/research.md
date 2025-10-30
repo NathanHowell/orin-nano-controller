@@ -2,9 +2,9 @@
 
 ## Rust Toolchain Selection
 
-Decision: Adopt the stable `rustc 1.90.0 (1159e78c4 2025-09-14)` toolchain with edition 2024 support; no nightly features required.  
+Decision: Adopt the stable `rustc 1.91.0` toolchain with edition 2024 support; no nightly features required.  
 Rationale: This release is already installed, covers edition 2024 (needed by the workspace), and supports Embassy 0.4/0.9 crates without unstable gates, keeping CI/tooling simple.  
-Alternatives considered: Nightly toolchain (rejected—no required unstable features identified yet); older stables such as 1.80–1.89 (rejected—would forfeit edition 2024 defaults and recent embedded fixes).
+Alternatives considered: Nightly toolchain (rejected—no required unstable features identified yet); older stables such as 1.80–1.90 (rejected—would forfeit edition 2024 defaults and recent embedded fixes).
 
 ## Embassy Crate & Timer Configuration
 

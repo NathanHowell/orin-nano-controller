@@ -1,7 +1,7 @@
 # Quickstart
 
 ## Prerequisites
-- Rust toolchain `1.90.0` with the 2024 edition (`rustup default stable`).
+- Rust toolchain `1.91.0` with the 2024 edition (`rustup default stable`).
 - Target support: `rustup target add thumbv6m-none-eabi`.
 - [`probe-rs`](https://probe.rs) tooling (`cargo install probe-rs-tools --locked`) or `cargo-embed`.
 - ST-LINK/V3 or equivalent SWD probe wired to header J1 (VTref → 3V3, SWDIO, SWCLK, NRST, GND).
